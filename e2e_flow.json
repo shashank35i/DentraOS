@@ -1,0 +1,9 @@
+﻿{
+    "admin_uid":  "AD-9271",
+    "doctor_uid":  "DC-3223",
+    "patient_uid":  "PT-1836",
+    "appointment_db_id":  5,
+    "inventory_item":  "GAUZE-FLOW-3457",
+    "consumables_updated":  true,
+    "appointment_completed":  true
+}

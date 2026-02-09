@@ -1,0 +1,247 @@
+﻿/* URL IMPORTS (SUCH AS FONT IMPORTS) SHOULD BE KEPT ABOVE TAILWIND IMPORTS - DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2family=Newsreader:opsz,wght@6..72,400;500;600;700&family=Sora:wght@300;400;500;600;700&display=swap');
+/* PLEASE NOTE: THESE TAILWIND IMPORTS SHOULD NEVER BE DELETED - DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+/* DO NOT DELETE THESE TAILWIND IMPORTS, OTHERWISE THE STYLING WILL NOT RENDER AT ALL - DO NOT DELETE THIS COMMENT */
+
+:root {
+  --canvas: #f6f2ee;
+  --canvas-strong: #f0ebe5;
+  --surface: #ffffff;
+  --surface-muted: #f6f1ea;
+  --ink: #1a2430;
+  --ink-muted: #5b6675;
+  --line: #e3dcd3;
+  --brand: #0f6b5f;
+  --brand-strong: #0b4c44;
+  --accent: #b48758;
+  --success: #1f7a4f;
+  --warn: #b65b1c;
+  --danger: #a6403a;
+  --shadow-soft: 0 14px 40px -22px rgba(19, 33, 45, 0.35);
+  --shadow-card: 0 18px 60px -36px rgba(19, 33, 45, 0.35);
+}
+
+@layer base {
+  body {
+    @apply font-sans text-[color:var(--ink)];
+    font-family: 'Sora', system-ui, sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(15, 107, 95, 0.08), transparent 45%),
+      radial-gradient(circle at 15% 40%, rgba(180, 135, 88, 0.12), transparent 50%),
+      linear-gradient(180deg, var(--canvas), var(--canvas-strong));
+    min-height: 100vh;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Newsreader', 'Times New Roman', serif;
+    @apply font-semibold text-[color:var(--ink)];
+  }
+  p {
+    @apply text-[color:var(--ink-muted)];
+  }
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
+  }
+  .btn-primary {
+    @apply text-white;
+    background: linear-gradient(120deg, var(--brand), var(--brand-strong));
+    box-shadow: var(--shadow-soft);
+  }
+  .btn-secondary {
+    @apply border text-[color:var(--ink)];
+    background: var(--surface);
+    border-color: var(--line);
+  }
+  .card {
+    @apply rounded-2xl p-6 transition-all duration-200;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-card);
+  }
+  .input {
+    @apply w-full px-4 py-2 rounded-lg focus:outline-none focus:ring-2;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    --tw-ring-color: rgba(15, 107, 95, 0.25);
+  }
+  .label {
+    @apply block text-sm font-medium mb-1 text-[color:var(--ink)];
+  }
+  .badge {
+    @apply px-2 py-1 text-xs font-medium rounded-full;
+  }
+  .badge-success {
+    @apply text-[color:var(--success)];
+    background: rgba(31, 122, 79, 0.12);
+  }
+  .badge-warning {
+    @apply text-[color:var(--warn)];
+    background: rgba(182, 91, 28, 0.12);
+  }
+  .badge-danger {
+    @apply text-[color:var(--danger)];
+    background: rgba(166, 64, 58, 0.12);
+  }
+  .badge-info {
+    @apply text-[color:var(--brand)];
+    background: rgba(15, 107, 95, 0.12);
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply min-h-screen text-[color:var(--ink)];
+    background:
+      radial-gradient(circle at top left, rgba(15, 107, 95, 0.08), transparent 45%),
+      radial-gradient(circle at 15% 40%, rgba(180, 135, 88, 0.12), transparent 50%),
+      linear-gradient(180deg, var(--canvas), var(--canvas-strong));
+  }
+
+  .surface {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .surface-muted {
+    background: var(--surface-muted);
+    border: 1px solid var(--line);
+  }
+
+  .section-title {
+    @apply text-xs uppercase tracking-[0.24em];
+    color: var(--brand);
+  }
+
+  .kpi-card {
+    @apply rounded-2xl p-4 flex flex-col gap-3;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium;
+    background: rgba(15, 107, 95, 0.12);
+    color: var(--brand);
+  }
+
+  .ghost-button {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition;
+    color: var(--ink);
+    background: rgba(26, 36, 48, 0.06);
+  }
+
+  .divider-line {
+    border-color: var(--line);
+  }
+
+  .table-shell {
+    @apply w-full overflow-hidden rounded-2xl;
+    background: var(--surface);
+    border: 1px solid var(--line);
+  }
+}
+
+@layer utilities {
+  .text-ink {
+    color: var(--ink);
+  }
+  .text-ink-muted {
+    color: var(--ink-muted);
+  }
+  .text-brand {
+    color: var(--brand);
+  }
+  .bg-canvas {
+    background: var(--canvas);
+  }
+  .bg-surface {
+    background: var(--surface);
+  }
+  .bg-surface-muted {
+    background: var(--surface-muted);
+  }
+  .border-line {
+    border-color: var(--line);
+  }
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  .reveal {
+    animation: fadeUp 0.6s ease both;
+  }
+  .reveal-delay {
+    animation: fadeUp 0.8s ease both;
+  }
+
+  /* Legacy palette re-skin for classic theme */
+  .bg-slate-950,
+  .bg-slate-900,
+  .bg-neutral-950,
+  .bg-neutral-900 {
+    background-color: var(--surface) !important;
+  }
+  .bg-slate-800,
+  .bg-neutral-800 {
+    background-color: var(--surface-muted) !important;
+  }
+  .bg-slate-50 {
+    background-color: var(--canvas) !important;
+  }
+  .bg-white {
+    background-color: var(--surface) !important;
+  }
+
+  .text-slate-50,
+  .text-slate-100,
+  .text-slate-200,
+  .text-slate-900,
+  .text-neutral-900,
+  .text-gray-900,
+  .text-neutral-50,
+  .text-neutral-100,
+  .text-neutral-200 {
+    color: var(--ink) !important;
+  }
+  .text-slate-300,
+  .text-slate-400,
+  .text-slate-500,
+  .text-slate-600,
+  .text-gray-600,
+  .text-gray-700,
+  .text-neutral-300,
+  .text-neutral-400,
+  .text-neutral-500 {
+    color: var(--ink-muted) !important;
+  }
+
+  .border-slate-900,
+  .border-slate-800,
+  .border-slate-700,
+  .border-slate-200,
+  .border-neutral-900,
+  .border-neutral-800,
+  .border-neutral-700,
+  .border-neutral-200 {
+    border-color: var(--line) !important;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

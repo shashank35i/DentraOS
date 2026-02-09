@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+Backend/.venv/
+
+# Node
+node_modules/
+
+# Vite/Playwright
+Frontend/.vite/
+Frontend/.playwright/
+Frontend/test-results/
+
+# Logs
+*.log
+backend.log
+worker.log
+
+# OS/Editor
+.DS_Store
+.vscode/
+
+# Archives / zips
+Frontend/_zip_src/
+Frontend/frontend.zip

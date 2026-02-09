@@ -1,0 +1,11 @@
+﻿{
+    "admin_uid":  "AD-5972",
+    "doctor_uid":  "DC-4284",
+    "patient_uid":  "PT-2525",
+    "vendor_id":  1,
+    "inventory_item":  "GLOVE-CX-5921",
+    "appointment_inventory_id":  6,
+    "appointment_no_show_id":  7,
+    "consumables_updated":  true,
+    "appointment_completed":  true
+}

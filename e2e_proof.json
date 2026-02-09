@@ -1,0 +1,10 @@
+﻿{
+    "admin_uid":  "AD-2760",
+    "doctor_uid":  "DC-3553",
+    "patient_uid":  "PT-4062",
+    "appointment_db_id":  4,
+    "inventory_item":  "GAUZE-3673",
+    "consumables_updated":  true,
+    "appointment_completed":  true,
+    "notifications_count":  6
+}
