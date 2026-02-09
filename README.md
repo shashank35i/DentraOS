@@ -1,4 +1,4 @@
-# DentraOS# Agentic AI DCIS (Web + Agentic Backend)
+# DentraOS# Agentic AI  (Web + Agentic Backend)
 A production-grade dental clinic intelligence platform with Admin, Doctor, and Patient portals, powered by an event-driven AI agent pipeline.
 
 Developer: Shashank Preetham
