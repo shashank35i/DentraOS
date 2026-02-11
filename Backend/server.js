@@ -7058,6 +7058,11 @@ app.get("/api/payments/history/:patientId", authMiddleware, async (req, res) => 
 // START SERVER
 // ===================================
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
-  console.log(`Auth + Admin + Doctor + Patient server running on http://localhost:${port}`);
+// Railway/containers expect binding on 0.0.0.0 and a quick root response
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
+});
+
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Auth + Admin + Doctor + Patient server running on http://0.0.0.0:${port}`);
 });
