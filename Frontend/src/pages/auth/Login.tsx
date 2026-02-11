@@ -142,13 +142,6 @@ export const Login: React.FC = () => {
                 clean dashboards and agent-led insights.
               </p>
             </div>
-
-            <div className="surface rounded-2xl p-5">
-              <p className="text-xs text-ink-muted">Clinic access</p>
-              <p className="mt-2 text-sm text-ink">
-                Use the credentials provided by your clinic administrator.
-              </p>
-            </div>
           </div>
 
           <div className="surface rounded-[28px] p-7 shadow-card">

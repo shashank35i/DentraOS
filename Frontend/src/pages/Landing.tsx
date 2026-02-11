@@ -60,6 +60,12 @@ export const Landing: React.FC = () => {
     "Deliver a smoother patient experience",
   ];
 
+  const metrics = [
+    { label: "Role-based workspaces", value: "3 portals" },
+    { label: "Automation agents", value: "4 agents" },
+    { label: "Core workflows", value: "Appointments, Inventory, Revenue, Cases" },
+  ];
+
   const roles = [
     {
       title: "Dentist",
@@ -84,7 +90,9 @@ export const Landing: React.FC = () => {
   ];
 
   return (
-    <div className="app-shell min-h-screen">
+    <div className="app-shell min-h-screen relative overflow-hidden">
+      <div className="pointer-events-none absolute -top-40 right-[-10%] h-96 w-96 rounded-full bg-[color:var(--brand)]/15 blur-[120px]" />
+      <div className="pointer-events-none absolute top-60 left-[-10%] h-80 w-80 rounded-full bg-sky-400/10 blur-[110px]" />
       <nav className="sticky top-0 z-20 border-b border-line bg-surface/80 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -110,32 +118,70 @@ export const Landing: React.FC = () => {
         </div>
       </nav>
 
-      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12">
-        <div className="text-center reveal">
-          <p className="section-title">Dental Clinic Operating System</p>
-          <h1 className="mt-3 text-4xl md:text-5xl lg:text-6xl font-semibold text-ink">
-            DentraOS keeps every visit, case, and invoice in perfect rhythm.
-          </h1>
-          <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-3xl mx-auto">
-            A unified platform for scheduling, treatments, inventory, and revenue —
-            powered by AI agents that reduce administrative load and keep care consistent.
-          </p>
+      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-12">
+        <div className="grid lg:grid-cols-[1.1fr,0.9fr] gap-10 items-center">
+          <div className="reveal">
+            <p className="section-title">Dental Clinic Operating System</p>
+            <h1 className="mt-3 text-4xl md:text-5xl lg:text-6xl font-semibold text-ink">
+              DentraOS orchestrates every visit with calm, precision, and trust.
+            </h1>
+            <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-2xl">
+              A unified platform for scheduling, treatments, inventory, and revenue —
+              powered by AI agents that remove admin friction and keep care consistent.
+            </p>
 
-          <div className="mt-8 flex flex-col sm:flex-row justify-center gap-3">
-            <Link to="/login" className="btn btn-primary">
-              Sign in to DentraOS
-            </Link>
-            <Link to="/create-account" className="btn btn-secondary">
-              Request access
-            </Link>
+            <div className="mt-7 flex flex-col sm:flex-row gap-3">
+              <Link to="/login" className="btn btn-primary">
+                Sign in to DentraOS
+              </Link>
+              <Link to="/create-account" className="btn btn-secondary">
+                Request access
+              </Link>
+            </div>
+
+            <div className="mt-7 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+              {benefits.map((b) => (
+                <span key={b} className="pill">
+                  {b}
+                </span>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs text-ink-muted">
-            {benefits.map((b) => (
-              <span key={b} className="pill">
-                {b}
-              </span>
-            ))}
+          <div className="surface rounded-[28px] p-6 md:p-7 shadow-card reveal-delay">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-xs text-ink-muted">Ops cockpit</p>
+                <h2 className="text-lg font-semibold text-ink">Clinic pulse</h2>
+              </div>
+              <span className="pill">Live</span>
+            </div>
+
+            <div className="space-y-3">
+              {agents.map(({ title, body, Icon }) => (
+                <div
+                  key={title}
+                  className="flex items-start gap-3 rounded-2xl border border-line bg-surface-muted px-4 py-3"
+                >
+                  <div className="h-10 w-10 rounded-2xl bg-[color:var(--brand)]/10 grid place-items-center">
+                    <Icon size={18} className="text-brand" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{title}</p>
+                    <p className="text-xs text-ink-muted">{body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3 text-xs">
+              {metrics.map((m) => (
+                <div key={m.label} className="surface-muted rounded-xl px-3 py-2">
+                  <div className="text-[11px] text-ink-muted">{m.label}</div>
+                  <div className="font-semibold text-ink">{m.value}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </header>
