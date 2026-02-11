@@ -1,4 +1,4 @@
-﻿import React, { useEffect } from "react";
+import React, { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   CalendarIcon,
@@ -10,6 +10,9 @@ import {
   UsersIcon,
   BuildingIcon,
   BriefcaseIcon,
+  SparklesIcon,
+  ShieldIcon,
+  Globe2Icon,
 } from "lucide-react";
 
 export const Landing: React.FC = () => {
@@ -93,6 +96,7 @@ export const Landing: React.FC = () => {
     <div className="app-shell min-h-screen relative overflow-hidden">
       <div className="pointer-events-none absolute -top-40 right-[-10%] h-96 w-96 rounded-full bg-[color:var(--brand)]/15 blur-[120px]" />
       <div className="pointer-events-none absolute top-60 left-[-10%] h-80 w-80 rounded-full bg-sky-400/10 blur-[110px]" />
+
       <nav className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -101,10 +105,15 @@ export const Landing: React.FC = () => {
             </div>
             <div className="leading-tight">
               <div className="font-semibold text-ink">DentraOS</div>
-              <div className="text-[11px] text-ink-muted">
-                Clinical operations, unified.
-              </div>
+              <div className="text-[11px] text-ink-muted">Clinical operations, unified.</div>
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
+            <a href="#about" className="hover:text-ink">About</a>
+            <a href="#features" className="hover:text-ink">Features</a>
+            <a href="#agents" className="hover:text-ink">Agents</a>
+            <a href="#roles" className="hover:text-ink">Roles</a>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 w-full sm:w-auto">
@@ -121,16 +130,20 @@ export const Landing: React.FC = () => {
         </div>
       </nav>
 
-      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 sm:pt-14 pb-10 sm:pb-12">
+      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 sm:pt-12 pb-8 sm:pb-10">
         <div className="grid lg:grid-cols-[1.1fr,0.9fr] gap-8 lg:gap-10 items-center">
-          <div className="reveal order-2 lg:order-1">
-            <p className="section-title">Dental Clinic Operating System</p>
-            <h1 className="mt-3 text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-semibold text-ink leading-tight">
-              DentraOS orchestrates every visit with calm, precision, and trust.
+          <div className="reveal">
+            <div className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-xs text-ink-muted">
+              <SparklesIcon size={14} className="text-brand" />
+              Clinic-grade AI operating system
+            </div>
+            <h1 className="mt-4 text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-semibold text-ink leading-tight">
+              A calm, intelligent home for every dental visit.
             </h1>
             <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-2xl">
-              A unified platform for scheduling, treatments, inventory, and revenue —
-              powered by AI agents that remove admin friction and keep care consistent.
+              DentraOS connects scheduling, treatments, inventory, and revenue into one
+              trusted workspace. AI agents handle the repetitive work so your team can
+              focus on care.
             </p>
 
             <div className="mt-7 flex flex-col sm:flex-row gap-3">
@@ -142,16 +155,17 @@ export const Landing: React.FC = () => {
               </Link>
             </div>
 
-            <div className="mt-7 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-              {benefits.map((b) => (
-                <span key={b} className="pill">
-                  {b}
-                </span>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3 text-xs">
+              {metrics.map((m) => (
+                <div key={m.label} className="surface-muted rounded-xl px-3 py-2">
+                  <div className="text-[11px] text-ink-muted">{m.label}</div>
+                  <div className="font-semibold text-ink">{m.value}</div>
+                </div>
               ))}
             </div>
           </div>
 
-          <div className="surface rounded-[28px] p-5 sm:p-6 md:p-7 shadow-card reveal-delay order-1 lg:order-2">
+          <div className="surface rounded-[28px] p-5 sm:p-6 md:p-7 shadow-card reveal-delay">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <p className="text-xs text-ink-muted">Ops cockpit</p>
@@ -177,44 +191,56 @@ export const Landing: React.FC = () => {
               ))}
             </div>
 
-            <div className="mt-5 grid gap-3 grid-cols-1 sm:grid-cols-3 text-xs">
-              {metrics.map((m) => (
-                <div key={m.label} className="surface-muted rounded-xl px-3 py-2">
-                  <div className="text-[11px] text-ink-muted">{m.label}</div>
-                  <div className="font-semibold text-ink">{m.value}</div>
-                </div>
+            <div className="mt-5 flex flex-wrap gap-2 text-xs text-ink-muted">
+              {benefits.map((b) => (
+                <span key={b} className="pill">
+                  {b}
+                </span>
               ))}
             </div>
           </div>
         </div>
       </header>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
+      <section id="about" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         <div className="surface rounded-[28px] p-6 sm:p-8 md:p-10 reveal">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+          <div className="grid md:grid-cols-[1.1fr,0.9fr] gap-6 items-center">
             <div>
-              <p className="section-title">AI Agents</p>
-              <h2 className="mt-2 text-2xl font-semibold text-ink">
-                Four agents running the clinic engine
+              <p className="section-title">About</p>
+              <h2 className="mt-2 text-2xl sm:text-3xl font-semibold text-ink">
+                Built like the best AI products: clean, focused, and fast.
               </h2>
+              <p className="mt-3 text-sm text-ink-muted">
+                DentraOS is a modern clinical OS designed for dental practices. It combines
+                role-based workspaces, live operational insights, and AI automation so teams
+                move faster with fewer mistakes and better patient outcomes.
+              </p>
             </div>
-            <span className="text-xs text-ink-muted">Always on, always coordinated</span>
-          </div>
-          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-            {agents.map(({ title, body, Icon }) => (
-              <div key={title} className="surface-muted rounded-2xl p-5">
-                <div className="w-11 h-11 rounded-2xl bg-[color:var(--brand)]/10 grid place-items-center mb-4">
-                  <Icon size={20} className="text-brand" />
+            <div className="surface-muted rounded-2xl p-5">
+              <div className="flex items-start gap-3">
+                <ShieldIcon size={20} className="text-brand mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-ink">Designed for trust</p>
+                  <p className="text-xs text-ink-muted mt-1">
+                    Clear permissions, audit-friendly workflows, and predictable data handling.
+                  </p>
                 </div>
-                <h3 className="text-lg font-semibold text-ink">{title}</h3>
-                <p className="mt-2 text-sm text-ink-muted leading-relaxed">{body}</p>
               </div>
-            ))}
+              <div className="flex items-start gap-3 mt-4">
+                <Globe2Icon size={20} className="text-brand mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-ink">Anywhere access</p>
+                  <p className="text-xs text-ink-muted mt-1">
+                    Web-first experience built for desktop and mobile use.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
+      <section id="features" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         <div className="grid md:grid-cols-2 gap-6">
           <div className="surface rounded-2xl p-6 reveal">
             <p className="section-title">Outcomes</p>
@@ -264,7 +290,32 @@ export const Landing: React.FC = () => {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
+      <section id="agents" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+        <div className="surface rounded-[28px] p-6 sm:p-8 md:p-10 reveal">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+            <div>
+              <p className="section-title">AI Agents</p>
+              <h2 className="mt-2 text-2xl font-semibold text-ink">
+                Four agents running the clinic engine
+              </h2>
+            </div>
+            <span className="text-xs text-ink-muted">Always on, always coordinated</span>
+          </div>
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+            {agents.map(({ title, body, Icon }) => (
+              <div key={title} className="surface-muted rounded-2xl p-5">
+                <div className="w-11 h-11 rounded-2xl bg-[color:var(--brand)]/10 grid place-items-center mb-4">
+                  <Icon size={20} className="text-brand" />
+                </div>
+                <h3 className="text-lg font-semibold text-ink">{title}</h3>
+                <p className="mt-2 text-sm text-ink-muted leading-relaxed">{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="roles" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         <div className="text-center mb-8 reveal">
           <p className="section-title">Roles</p>
           <h2 className="mt-2 text-3xl font-semibold text-ink">Experiences tailored by role</h2>
@@ -285,7 +336,7 @@ export const Landing: React.FC = () => {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         <div className="surface rounded-[28px] p-6 sm:p-8 md:p-10 text-center reveal">
           <h2 className="text-2xl sm:text-3xl font-semibold text-ink">
             Ready to run your clinic on DentraOS
@@ -313,7 +364,7 @@ export const Landing: React.FC = () => {
               Professional operating system for dental care.
             </p>
           </div>
-          <div className="text-sm text-ink-muted">© 2026 DentraOS</div>
+          <div className="text-sm text-ink-muted">� 2026 DentraOS</div>
         </div>
       </footer>
     </div>
