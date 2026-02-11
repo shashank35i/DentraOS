@@ -8,8 +8,11 @@ import {
   UsersIcon,
   BellIcon,
   UserIcon,
+  SunIcon,
+  MoonIcon,
 } from "lucide-react";
 import { DoctorSidebar } from "./DoctorSidebar";
+import { useTheme } from "../../contexts/ThemeContext";
 
 interface DoctorLayoutProps {
   children: React.ReactNode;
@@ -22,6 +25,13 @@ export const DoctorLayout: React.FC<DoctorLayoutProps> = ({ children }) => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_KEY) === "true";
   });
+  const { mode, setMode } = useTheme();
+  const themeMode =
+    mode === "system"
+      ? document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light"
+      : mode;
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen));
@@ -56,13 +66,23 @@ export const DoctorLayout: React.FC<DoctorLayoutProps> = ({ children }) => {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="flex items-center justify-between px-3 py-2 lg:hidden border-b border-line bg-surface">
           <div className="text-sm font-semibold text-ink">Doctor Workspace</div>
-          <NavLink
-            to="/doctor/alerts"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
-            aria-label="Notifications"
-          >
-            <BellIcon size={16} />
-          </NavLink>
+          <div className="flex items-center gap-2">
+            <NavLink
+              to="/doctor/alerts"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+              aria-label="Notifications"
+            >
+              <BellIcon size={16} />
+            </NavLink>
+            <button
+              type="button"
+              onClick={() => setMode(themeMode === "dark" ? "light" : "dark")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+              aria-label="Toggle theme"
+            >
+              {themeMode === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+            </button>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 lg:px-6 py-6 pb-24 lg:pb-6">

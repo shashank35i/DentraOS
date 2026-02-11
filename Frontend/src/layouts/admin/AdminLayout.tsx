@@ -8,8 +8,11 @@ import {
   PackageIcon,
   BellIcon,
   UserIcon,
+  SunIcon,
+  MoonIcon,
 } from "lucide-react";
 import { AdminSidebar } from "./AdminSidebar";
+import { useTheme } from "../../contexts/ThemeContext";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -34,6 +37,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(
     getInitialSidebarState
   );
+  const { mode, setMode } = useTheme();
+  const themeMode =
+    mode === "system"
+      ? document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light"
+      : mode;
 
   useEffect(() => {
     const handleResize = () => {
@@ -85,6 +95,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
             >
               <BellIcon size={16} />
             </NavLink>
+            <button
+              type="button"
+              onClick={() => setMode(themeMode === "dark" ? "light" : "dark")}
+              className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+              aria-label="Toggle theme"
+            >
+              {themeMode === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+            </button>
           </div>
         </header>
 

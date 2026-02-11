@@ -7,8 +7,11 @@ import {
   CreditCardIcon,
   BellIcon,
   UserIcon,
+  SunIcon,
+  MoonIcon,
 } from "lucide-react";
 import { PatientSidebar } from "./PatientSidebar";
+import { useTheme } from "../../contexts/ThemeContext";
 
 type Props = {
   children: React.ReactNode;
@@ -22,6 +25,13 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
     if (stored === "false") return false;
     return window.innerWidth >= 1024;
   });
+  const { mode, setMode } = useTheme();
+  const themeMode =
+    mode === "system"
+      ? document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light"
+      : mode;
 
   useEffect(() => {
     localStorage.setItem("patient_sidebar_open", String(sidebarOpen));
@@ -68,13 +78,23 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
       >
         <header className="flex items-center justify-between px-4 lg:px-6 py-3 border-b border-line bg-surface lg:hidden">
           <div className="text-sm font-semibold text-ink">Patient Portal</div>
-          <NavLink
-            to="/patient/alerts"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
-            aria-label="Notifications"
-          >
-            <BellIcon size={16} />
-          </NavLink>
+          <div className="flex items-center gap-2">
+            <NavLink
+              to="/patient/alerts"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+              aria-label="Notifications"
+            >
+              <BellIcon size={16} />
+            </NavLink>
+            <button
+              type="button"
+              onClick={() => setMode(themeMode === "dark" ? "light" : "dark")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+              aria-label="Toggle theme"
+            >
+              {themeMode === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+            </button>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden pb-24 lg:pb-6">

@@ -13,10 +13,20 @@ import {
   SparklesIcon,
   ShieldIcon,
   Globe2Icon,
+  SunIcon,
+  MoonIcon,
 } from "lucide-react";
+import { useTheme } from "../contexts/ThemeContext";
 
 export const Landing: React.FC = () => {
   const navigate = useNavigate();
+  const { mode, setMode } = useTheme();
+  const themeMode =
+    mode === "system"
+      ? document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light"
+      : mode;
 
   useEffect(() => {
     const token = localStorage.getItem("authToken");
@@ -111,6 +121,14 @@ export const Landing: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-nowrap">
+            <button
+              type="button"
+              onClick={() => setMode(themeMode === "dark" ? "light" : "dark")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+              aria-label="Toggle theme"
+            >
+              {themeMode === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+            </button>
             <Link to="/login" className="btn btn-secondary px-3 py-2 text-xs sm:text-sm whitespace-nowrap min-w-[92px] shrink-0 leading-none">
               Sign in
             </Link>
@@ -369,6 +387,3 @@ export const Landing: React.FC = () => {
     </div>
   );
 };
-
-
-
