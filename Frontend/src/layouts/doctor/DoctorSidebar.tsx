@@ -1,5 +1,5 @@
 ﻿// src/layouts/doctor/DoctorSidebar.tsx
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboardIcon,
@@ -17,28 +17,12 @@ import {
   BellIcon,
 } from "lucide-react";
 import { clearAuth } from "../../components/ProtectedRoute";
+import { useTheme } from "../../contexts/ThemeContext";
 
 interface DoctorSidebarProps {
   isOpen: boolean;
   onToggle: () => void;
 }
-
-type ThemeMode = "light" | "dark";
-const THEME_KEY = "theme";
-
-const getInitialTheme = (): ThemeMode => {
-  if (typeof window === "undefined") return "light";
-  const saved = localStorage.getItem(THEME_KEY) as ThemeMode | null;
-  if (saved === "light" || saved === "dark") return saved;
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  return prefersDark ? "dark" : "light";
-};
-
-const applyTheme = (mode: ThemeMode) => {
-  const root = document.documentElement;
-  if (mode === "dark") root.classList.add("dark");
-  else root.classList.remove("dark");
-};
 
 const navItemBase =
   "flex items-center rounded-xl py-2 text-sm transition-colors border";
@@ -54,17 +38,13 @@ export const DoctorSidebar: React.FC<DoctorSidebarProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const userName = localStorage.getItem("userName") || "Doctor";
-
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getInitialTheme());
-
-  useEffect(() => {
-    applyTheme(themeMode);
-    localStorage.setItem(THEME_KEY, themeMode);
-  }, [themeMode]);
-
-  const toggleTheme = () => {
-    setThemeMode((prev) => (prev === "dark" ? "light" : "dark"));
-  };
+  const { mode, setMode } = useTheme();
+  const themeMode =
+    mode === "system"
+      ? document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light"
+      : mode;
 
   const handleLogout = () => {
     clearAuth();
@@ -72,7 +52,7 @@ export const DoctorSidebar: React.FC<DoctorSidebarProps> = ({
   };
 
   const handleNavClick = () => {
-    if (window.innerWidth < 1024) onToggle();
+    if (isOpen && window.innerWidth < 1024) onToggle();
   };
 
   const navItems = [
@@ -220,7 +200,7 @@ export const DoctorSidebar: React.FC<DoctorSidebarProps> = ({
             <div className="inline-flex items-center gap-1 rounded-xl">
               <button
                 type="button"
-                onClick={toggleTheme}
+                onClick={() => setMode("light")}
                 className={`h-7 w-7 rounded-lg grid place-items-center text-ink-muted ${
                   themeMode === "light"
                     ? "bg-white text-ink shadow-soft"
@@ -232,7 +212,7 @@ export const DoctorSidebar: React.FC<DoctorSidebarProps> = ({
               </button>
               <button
                 type="button"
-                onClick={toggleTheme}
+                onClick={() => setMode("dark")}
                 className={`h-7 w-7 rounded-lg grid place-items-center text-ink-muted ${
                   themeMode === "dark"
                     ? "bg-surface text-white"

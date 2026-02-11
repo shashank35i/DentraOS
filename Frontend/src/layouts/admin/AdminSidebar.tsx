@@ -1,5 +1,5 @@
 ﻿// src/layouts/admin/AdminSidebar.tsx
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboardIcon,
@@ -19,29 +19,13 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import { clearAuth } from "../../components/ProtectedRoute";
+import { useTheme } from "../../contexts/ThemeContext";
 
 interface AdminSidebarProps {
   isOpen: boolean;
   onToggle: () => void;
   onClose: () => void;
 }
-
-type ThemeMode = "light" | "dark";
-const THEME_KEY = "theme";
-
-const getInitialTheme = (): ThemeMode => {
-  if (typeof window === "undefined") return "light";
-  const saved = localStorage.getItem(THEME_KEY) as ThemeMode | null;
-  if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-};
-
-const applyTheme = (mode: ThemeMode) => {
-  const root = document.documentElement;
-  mode === "dark" ? root.classList.add("dark") : root.classList.remove("dark");
-};
 
 const navBase =
   "flex items-center rounded-xl py-2 text-sm font-medium transition-colors border";
@@ -57,13 +41,13 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const userName = localStorage.getItem("userName") || "Admin";
-
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
-
-  useEffect(() => {
-    applyTheme(themeMode);
-    localStorage.setItem(THEME_KEY, themeMode);
-  }, [themeMode]);
+  const { mode, setMode } = useTheme();
+  const themeMode =
+    mode === "system"
+      ? document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light"
+      : mode;
 
   const handleLogout = () => {
     clearAuth();
@@ -143,7 +127,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             <span className="text-[11px] text-ink-muted">Appearance</span>
             <div className="flex gap-1">
               <button
-                onClick={() => setThemeMode("light")}
+                onClick={() => setMode("light")}
                 className={`h-7 w-7 rounded-lg grid place-items-center ${
                   themeMode === "light"
                     ? "bg-white text-ink shadow-soft"
@@ -154,7 +138,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 <SunIcon size={14} />
               </button>
               <button
-                onClick={() => setThemeMode("dark")}
+                onClick={() => setMode("dark")}
                 className={`h-7 w-7 rounded-lg grid place-items-center ${
                   themeMode === "dark"
                     ? "bg-slate-900 text-white"
