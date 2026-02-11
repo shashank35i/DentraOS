@@ -2087,8 +2087,39 @@ function authMiddleware(req, res, next) {
 }
 
 
-app.get("/api/auth/me", authMiddleware, (req, res) => {
-  res.json({ user: req.user });
+app.get("/api/auth/me", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user?.id || null;
+    const userUid = req.user?.uid || null;
+
+    if (!userId && !userUid) {
+      return res.json({ user: req.user });
+    }
+
+    const rows = await safeQuery(
+      "AUTH ME",
+      "SELECT id, uid, full_name, email, role FROM users WHERE id = ? OR uid = ? LIMIT 1",
+      [userId, userUid]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.json({ user: req.user });
+    }
+
+    const dbUser = rows[0];
+    return res.json({
+      user: {
+        id: dbUser.id,
+        uid: dbUser.uid,
+        name: dbUser.full_name,
+        email: dbUser.email,
+        role: normalizeRoleToClient(dbUser.role),
+      },
+    });
+  } catch (err) {
+    console.error("AUTH ME ERROR:", err);
+    return res.json({ user: req.user });
+  }
 });
 
 function requireRole(...allowed) {

@@ -1,15 +1,58 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOutIcon, UserIcon, MailIcon, ShieldIcon } from "lucide-react";
 import { clearAuth } from "../components/ProtectedRoute";
 
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
-  const userName = localStorage.getItem("userName") || "User";
-  const userRole = (localStorage.getItem("userRole") || "Member")
-    .toLowerCase()
-    .replace(/^./, (s) => s.toUpperCase());
-  const userEmail = localStorage.getItem("userEmail") || "user@example.com";
+  const [userName, setUserName] = useState(
+    localStorage.getItem("userName") || "User"
+  );
+  const [userRole, setUserRole] = useState(
+    (localStorage.getItem("userRole") || "Member")
+      .toLowerCase()
+      .replace(/^./, (s) => s.toUpperCase())
+  );
+  const [userEmail, setUserEmail] = useState(
+    localStorage.getItem("userEmail") || ""
+  );
+
+  useEffect(() => {
+    const token =
+      localStorage.getItem("authToken") || localStorage.getItem("token");
+
+    if (!token) return;
+
+    const API_BASE =
+      (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
+
+    fetch(`${API_BASE}/api/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data?.user) return;
+        const name = data.user.name || userName;
+        const email = data.user.email || userEmail;
+        const roleRaw = data.user.role || userRole;
+        const role = String(roleRaw)
+          .toLowerCase()
+          .replace(/^./, (s) => s.toUpperCase());
+
+        setUserName(name);
+        setUserEmail(email);
+        setUserRole(role);
+
+        if (name) localStorage.setItem("userName", name);
+        if (email) localStorage.setItem("userEmail", email);
+        if (data.user.role) localStorage.setItem("userRole", data.user.role);
+      })
+      .catch(() => {
+        // ignore
+      });
+  }, []);
 
   const handleLogout = () => {
     clearAuth();
@@ -38,7 +81,9 @@ export const Profile: React.FC = () => {
           </div>
           <div>
             <p className="text-sm font-semibold text-ink">Contact</p>
-            <p className="text-sm text-ink-muted">{userEmail}</p>
+            <p className="text-sm text-ink-muted">
+              {userEmail || "Not available"}
+            </p>
           </div>
         </div>
 
