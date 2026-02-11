@@ -93,8 +93,8 @@ export const Landing: React.FC = () => {
     <div className="app-shell min-h-screen relative overflow-hidden">
       <div className="pointer-events-none absolute -top-40 right-[-10%] h-96 w-96 rounded-full bg-[color:var(--brand)]/15 blur-[120px]" />
       <div className="pointer-events-none absolute top-60 left-[-10%] h-80 w-80 rounded-full bg-sky-400/10 blur-[110px]" />
-      <nav className="sticky top-0 z-20 border-b border-line bg-surface/80 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <nav className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl border border-line bg-surface-muted grid place-items-center font-semibold text-ink">
               DO
@@ -107,22 +107,25 @@ export const Landing: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Link to="/login" className="text-sm font-medium text-ink-muted hover:text-ink">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 w-full sm:w-auto">
+            <Link
+              to="/login"
+              className="text-sm font-medium text-ink-muted hover:text-ink self-start sm:self-auto"
+            >
               Login
             </Link>
-            <Link to="/create-account" className="btn btn-primary">
+            <Link to="/create-account" className="btn btn-primary w-full sm:w-auto text-center">
               Request access
             </Link>
           </div>
         </div>
       </nav>
 
-      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-12">
-        <div className="grid lg:grid-cols-[1.1fr,0.9fr] gap-10 items-center">
-          <div className="reveal">
+      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 sm:pt-14 pb-10 sm:pb-12">
+        <div className="grid lg:grid-cols-[1.1fr,0.9fr] gap-8 lg:gap-10 items-center">
+          <div className="reveal order-2 lg:order-1">
             <p className="section-title">Dental Clinic Operating System</p>
-            <h1 className="mt-3 text-4xl md:text-5xl lg:text-6xl font-semibold text-ink">
+            <h1 className="mt-3 text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-semibold text-ink leading-tight">
               DentraOS orchestrates every visit with calm, precision, and trust.
             </h1>
             <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-2xl">
@@ -131,10 +134,10 @@ export const Landing: React.FC = () => {
             </p>
 
             <div className="mt-7 flex flex-col sm:flex-row gap-3">
-              <Link to="/login" className="btn btn-primary">
+              <Link to="/login" className="btn btn-primary w-full sm:w-auto text-center">
                 Sign in to DentraOS
               </Link>
-              <Link to="/create-account" className="btn btn-secondary">
+              <Link to="/create-account" className="btn btn-secondary w-full sm:w-auto text-center">
                 Request access
               </Link>
             </div>
@@ -148,7 +151,7 @@ export const Landing: React.FC = () => {
             </div>
           </div>
 
-          <div className="surface rounded-[28px] p-6 md:p-7 shadow-card reveal-delay">
+          <div className="surface rounded-[28px] p-5 sm:p-6 md:p-7 shadow-card reveal-delay order-1 lg:order-2">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <p className="text-xs text-ink-muted">Ops cockpit</p>
@@ -174,7 +177,7 @@ export const Landing: React.FC = () => {
               ))}
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-3 text-xs">
+            <div className="mt-5 grid gap-3 grid-cols-1 sm:grid-cols-3 text-xs">
               {metrics.map((m) => (
                 <div key={m.label} className="surface-muted rounded-xl px-3 py-2">
                   <div className="text-[11px] text-ink-muted">{m.label}</div>
@@ -186,9 +189,9 @@ export const Landing: React.FC = () => {
         </div>
       </header>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="surface rounded-[28px] p-8 md:p-10 reveal">
-          <div className="flex items-center justify-between mb-6">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
+        <div className="surface rounded-[28px] p-6 sm:p-8 md:p-10 reveal">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
             <div>
               <p className="section-title">AI Agents</p>
               <h2 className="mt-2 text-2xl font-semibold text-ink">
@@ -211,7 +214,7 @@ export const Landing: React.FC = () => {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
         <div className="grid md:grid-cols-2 gap-6">
           <div className="surface rounded-2xl p-6 reveal">
             <p className="section-title">Outcomes</p>
@@ -261,7 +264,7 @@ export const Landing: React.FC = () => {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
         <div className="text-center mb-8 reveal">
           <p className="section-title">Roles</p>
           <h2 className="mt-2 text-3xl font-semibold text-ink">Experiences tailored by role</h2>
@@ -282,9 +285,9 @@ export const Landing: React.FC = () => {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="surface rounded-[28px] p-8 md:p-10 text-center reveal">
-          <h2 className="text-3xl font-semibold text-ink">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
+        <div className="surface rounded-[28px] p-6 sm:p-8 md:p-10 text-center reveal">
+          <h2 className="text-2xl sm:text-3xl font-semibold text-ink">
             Ready to run your clinic on DentraOS
           </h2>
           <p className="mt-3 text-sm text-ink-muted max-w-2xl mx-auto">
@@ -292,10 +295,10 @@ export const Landing: React.FC = () => {
             work from day one.
           </p>
           <div className="mt-6 flex flex-col sm:flex-row justify-center gap-3">
-            <Link to="/create-account" className="btn btn-primary">
+            <Link to="/create-account" className="btn btn-primary w-full sm:w-auto text-center">
               Request access
             </Link>
-            <Link to="/login" className="btn btn-secondary">
+            <Link to="/login" className="btn btn-secondary w-full sm:w-auto text-center">
               Sign in
             </Link>
           </div>
@@ -303,7 +306,7 @@ export const Landing: React.FC = () => {
       </section>
 
       <footer className="border-t border-line bg-surface/70">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col md:flex-row justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 flex flex-col md:flex-row justify-between gap-4">
           <div>
             <div className="font-semibold text-ink">DentraOS</div>
             <p className="text-sm text-ink-muted">
