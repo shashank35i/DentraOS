@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { MenuIcon } from "lucide-react";
+import { NavLink } from "react-router-dom";
+import {
+  LayoutDashboardIcon,
+  CalendarDaysIcon,
+  FileTextIcon,
+  CreditCardIcon,
+  BellIcon,
+} from "lucide-react";
 import { PatientSidebar } from "./PatientSidebar";
 
 type Props = {
@@ -19,12 +26,31 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
     localStorage.setItem("patient_sidebar_open", String(sidebarOpen));
   }, [sidebarOpen]);
 
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024) {
+        setSidebarOpen(false);
+      }
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const leftPad = useMemo(() => {
     return sidebarOpen ? "lg:pl-64" : "lg:pl-16";
   }, [sidebarOpen]);
 
-  const openSidebar = () => setSidebarOpen(true);
   const toggleSidebar = () => setSidebarOpen((v) => !v);
+
+  const navItems = [
+    { to: "/patient/overview", label: "Home", Icon: LayoutDashboardIcon },
+    { to: "/patient/appointments", label: "Visits", Icon: CalendarDaysIcon },
+    { to: "/patient/treatments", label: "Care", Icon: FileTextIcon },
+    { to: "/patient/billing", label: "Billing", Icon: CreditCardIcon },
+    { to: "/patient/alerts", label: "Alerts", Icon: BellIcon },
+  ];
 
   return (
     <div className="app-shell h-screen w-full overflow-hidden">
@@ -41,22 +67,34 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
       >
         <header className="flex items-center justify-between px-4 lg:px-6 py-3 border-b border-line bg-surface/90 backdrop-blur lg:hidden">
           <div className="text-sm font-semibold text-ink">Patient Portal</div>
-          <button
-            type="button"
-            onClick={openSidebar}
-            className="inline-flex items-center justify-center h-9 w-9 rounded-xl border border-line bg-surface text-ink"
-            aria-label="Open menu"
-          >
-            <MenuIcon size={18} />
-          </button>
         </header>
 
-        <main className="flex-1 overflow-y-auto overflow-x-hidden">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pb-24 lg:pb-6">
           <div className="min-h-screen px-4 sm:px-6 lg:px-8 py-6">
             {children}
           </div>
         </main>
       </div>
+
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-line bg-surface/95 backdrop-blur">
+        <div className="grid grid-cols-5 gap-1 px-2 py-2 text-[11px] text-ink-muted">
+          {navItems.map(({ to, label, Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                [
+                  "flex flex-col items-center justify-center gap-1 rounded-xl py-2",
+                  isActive ? "text-brand bg-surface-muted" : "hover:text-ink",
+                ].join(" ")
+              }
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 };
