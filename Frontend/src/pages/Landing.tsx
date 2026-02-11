@@ -98,7 +98,7 @@ export const Landing: React.FC = () => {
       <div className="pointer-events-none absolute -top-40 right-[-10%] h-96 w-96 rounded-full bg-[color:var(--brand)]/15 blur-[120px]" />
       <div className="pointer-events-none absolute top-60 left-[-10%] h-80 w-80 rounded-full bg-sky-400/10 blur-[110px]" />
 
-      <nav className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
+      <nav className="sticky top-0 z-20 border-b border-line bg-surface">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl border border-line bg-surface-muted grid place-items-center font-semibold text-ink">
@@ -369,3 +369,4 @@ export const Landing: React.FC = () => {
     </div>
   );
 };
+

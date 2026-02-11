@@ -65,7 +65,7 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
           "transition-[padding] duration-150 ease-out",
         ].join(" ")}
       >
-        <header className="flex items-center justify-between px-4 lg:px-6 py-3 border-b border-line bg-surface/90 backdrop-blur lg:hidden">
+        <header className="flex items-center justify-between px-4 lg:px-6 py-3 border-b border-line bg-surface lg:hidden">
           <div className="text-sm font-semibold text-ink">Patient Portal</div>
         </header>
 
@@ -76,7 +76,7 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
         </main>
       </div>
 
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-line bg-surface/95 backdrop-blur">
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-line bg-surface">
         <div className="grid grid-cols-5 gap-1 px-2 py-2 text-[11px] text-ink-muted">
           {navItems.map(({ to, label, Icon }) => (
             <NavLink
@@ -98,3 +98,4 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
     </div>
   );
 };
+
