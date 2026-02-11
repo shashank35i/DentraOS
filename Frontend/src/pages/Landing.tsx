@@ -89,12 +89,12 @@ export const Landing: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl border border-line bg-surface-muted grid place-items-center font-semibold text-ink">
-              DC
+              DO
             </div>
             <div className="leading-tight">
-              <div className="font-semibold text-ink">Dental Clinic Intelligence</div>
+              <div className="font-semibold text-ink">DentraOS</div>
               <div className="text-[11px] text-ink-muted">
-                Agentic AI for clinical operations
+                Clinical operations, unified.
               </div>
             </div>
           </div>
@@ -104,7 +104,7 @@ export const Landing: React.FC = () => {
               Login
             </Link>
             <Link to="/create-account" className="btn btn-primary">
-              Get Started
+              Request access
             </Link>
           </div>
         </div>
@@ -112,21 +112,21 @@ export const Landing: React.FC = () => {
 
       <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12">
         <div className="text-center reveal">
-          <p className="section-title">Clinic Operating System</p>
+          <p className="section-title">Dental Clinic Operating System</p>
           <h1 className="mt-3 text-4xl md:text-5xl lg:text-6xl font-semibold text-ink">
-            Calm, professional workflows for modern dental teams.
+            DentraOS keeps every visit, case, and invoice in perfect rhythm.
           </h1>
           <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-3xl mx-auto">
-            Four specialized agents coordinate appointments, inventory, revenue, and case
-            tracking so your team can focus on care.
+            A unified platform for scheduling, treatments, inventory, and revenue —
+            powered by AI agents that reduce administrative load and keep care consistent.
           </p>
 
           <div className="mt-8 flex flex-col sm:flex-row justify-center gap-3">
             <Link to="/login" className="btn btn-primary">
-              Sign in
+              Sign in to DentraOS
             </Link>
-            <Link to="/admin/overview" className="btn btn-secondary">
-              View Admin Demo
+            <Link to="/create-account" className="btn btn-secondary">
+              Request access
             </Link>
           </div>
 
@@ -146,7 +146,7 @@ export const Landing: React.FC = () => {
             <div>
               <p className="section-title">AI Agents</p>
               <h2 className="mt-2 text-2xl font-semibold text-ink">
-                Four agents that work in sync
+                Four agents running the clinic engine
               </h2>
             </div>
             <span className="text-xs text-ink-muted">Always on, always coordinated</span>
@@ -170,11 +170,11 @@ export const Landing: React.FC = () => {
           <div className="surface rounded-2xl p-6 reveal">
             <p className="section-title">Outcomes</p>
             <h2 className="mt-2 text-2xl font-semibold text-ink">
-              Operational clarity that scales
+              Operational clarity that scales with you
             </h2>
             <p className="mt-3 text-sm text-ink-muted">
-              The platform aligns your team around a single, trusted workflow. Every visit,
-              case, and follow-up is visible and coordinated.
+              DentraOS aligns the entire team around a single, trusted workflow. Every visit,
+              case, and follow-up is visible, coordinated, and auditable.
             </p>
             <ul className="mt-5 space-y-3 text-sm text-ink-muted">
               {[
@@ -239,18 +239,18 @@ export const Landing: React.FC = () => {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="surface rounded-[28px] p-8 md:p-10 text-center reveal">
           <h2 className="text-3xl font-semibold text-ink">
-            Ready to modernize your clinic
+            Ready to run your clinic on DentraOS
           </h2>
           <p className="mt-3 text-sm text-ink-muted max-w-2xl mx-auto">
-            Launch with clean dashboards, role-based access, and agents that reduce work from
-            day one.
+            Launch with clean dashboards, role-based access, and agents that remove repetitive
+            work from day one.
           </p>
           <div className="mt-6 flex flex-col sm:flex-row justify-center gap-3">
             <Link to="/create-account" className="btn btn-primary">
-              Create account
+              Request access
             </Link>
             <Link to="/login" className="btn btn-secondary">
-              Talk to support
+              Sign in
             </Link>
           </div>
         </div>
@@ -259,12 +259,12 @@ export const Landing: React.FC = () => {
       <footer className="border-t border-line bg-surface/70">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col md:flex-row justify-between gap-4">
           <div>
-            <div className="font-semibold text-ink">Dental Clinic Intelligence</div>
+            <div className="font-semibold text-ink">DentraOS</div>
             <p className="text-sm text-ink-muted">
-              Professional agentic AI for dental operations.
+              Professional operating system for dental care.
             </p>
           </div>
-          <div className="text-sm text-ink-muted">© 2026 Dental Clinic Intelligence</div>
+          <div className="text-sm text-ink-muted">© 2026 DentraOS</div>
         </div>
       </footer>
     </div>

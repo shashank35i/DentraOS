@@ -100,7 +100,7 @@ export const Login: React.FC = () => {
         return;
       }
 
-      const normalizedRole = normalizeRoleString(data.role) - role;
+      const normalizedRole = normalizeRoleString(data.role) || role;
 
       localStorage.setItem("authToken", data.token);
       localStorage.setItem("userRole", normalizedRole);
@@ -144,11 +144,10 @@ export const Login: React.FC = () => {
             </div>
 
             <div className="surface rounded-2xl p-5">
-              <p className="text-xs text-ink-muted">Quick actions</p>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                <button className="ghost-button" onClick={() => navigate("/create-account")}>Create account</button>
-                <button className="ghost-button" onClick={() => navigate("/help")}>Contact support</button>
-              </div>
+              <p className="text-xs text-ink-muted">Clinic access</p>
+              <p className="mt-2 text-sm text-ink">
+                Use the credentials provided by your clinic administrator.
+              </p>
             </div>
           </div>
 
@@ -248,11 +247,8 @@ export const Login: React.FC = () => {
               </button>
             </form>
 
-            <div className="mt-5 pt-4 border-t border-line text-[12px] text-ink-muted flex justify-between items-center">
-              <span>Don&apos;t have an account</span>
-              <Link to="/create-account" className="font-semibold text-ink hover:opacity-80">
-                Create one
-              </Link>
+            <div className="mt-5 pt-4 border-t border-line text-[12px] text-ink-muted">
+              Need access? Contact your clinic administrator.
             </div>
           </div>
         </div>
