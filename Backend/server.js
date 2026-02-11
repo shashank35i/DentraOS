@@ -1181,6 +1181,10 @@ const smtpSecure =
   String(process.env.SMTP_SECURE || "").trim() === "1" ||
   String(process.env.SMTP_SECURE || "").trim().toLowerCase() === "true" ||
   smtpPort === 465;
+const brevoApiKey =
+  process.env.BREVO_API_KEY ||
+  process.env.SENDINBLUE_API_KEY ||
+  "";
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -1195,6 +1199,10 @@ const transporter = nodemailer.createTransport({
 // Optional verify (won’t crash server)
 (async () => {
   try {
+    if (brevoApiKey) {
+      console.log("ℹ️ Using Brevo API for email delivery (SMTP verify skipped).");
+      return;
+    }
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
       await transporter.verify();
       console.log("✅ SMTP transporter verified");
@@ -1205,6 +1213,54 @@ const transporter = nodemailer.createTransport({
     console.error("❌ SMTP verify failed:", e?.message || e);
   }
 })();
+
+function parseMailFrom(raw) {
+  const value = String(raw || "").trim();
+  if (!value) {
+    return { name: "Dental Clinic AI", email: String(process.env.SMTP_USER || "").trim() };
+  }
+  const match = value.match(/^(.*)<([^>]+)>$/);
+  if (match) {
+    return { name: match[1].trim().replace(/^\"|\"$/g, ""), email: match[2].trim() };
+  }
+  return { name: "Dental Clinic AI", email: value };
+}
+
+async function sendEmail({ to, subject, html, text, from }) {
+  if (brevoApiKey) {
+    const sender = parseMailFrom(from || process.env.MAIL_FROM || process.env.SMTP_USER);
+    const payload = {
+      sender,
+      to: [{ email: String(to).trim() }],
+      subject: String(subject || ""),
+      htmlContent: String(html || ""),
+    };
+    if (text) payload.textContent = String(text);
+
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": brevoApiKey,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Brevo API error: ${res.status} ${body}`);
+    }
+    return;
+  }
+
+  await transporter.sendMail({
+    from: from || process.env.MAIL_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    text,
+  });
+}
 
 // Generate 6-digit OTP like "483920"
 function generateOtp() {
@@ -1671,7 +1727,7 @@ app.post("/api/auth/email-otp/request", async (req, res) => {
 
     const html = buildEmailVerificationHtml(null, otp);
 
-    await transporter.sendMail({
+    await sendEmail({
       from: process.env.MAIL_FROM || '"Dental Clinic AI" <no-reply@clinic.ai>',
       to: normalizedEmail,
       subject: "Verify your Dental Clinic AI email",
@@ -1847,7 +1903,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
     const html = buildOtpEmailHtml(user.full_name, otp);
 
-    await transporter.sendMail({
+    await sendEmail({
       from: process.env.MAIL_FROM || '"Dental Clinic AI" <no-reply@clinic.ai>',
       to: user.email,
       subject: "Your Dental Clinic AI password reset code",
@@ -1947,7 +2003,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
     try {
       const html = buildPasswordChangedEmailHtml(user.full_name);
-      await transporter.sendMail({
+      await sendEmail({
         from: process.env.MAIL_FROM || '"Dental Clinic AI" <no-reply@clinic.ai>',
         to: normalizedEmail,
         subject: "Your Dental Clinic AI password was changed",
@@ -3159,7 +3215,7 @@ app.post(
         try {
           const roleLabel = roleDb === "Doctor" ? "Doctor" : roleDb === "Assistant" ? "Assistant" : roleDb;
           const html = buildInviteEmailHtml(name, roleLabel, usedTempPassword);
-          await transporter.sendMail({
+          await sendEmail({
             from: process.env.MAIL_FROM || '"Dental Clinic AI" <no-reply@clinic.ai>',
             to: normalizedEmail,
             subject: "Your Dental Clinic AI account details",
