@@ -29,6 +29,7 @@ import { ThemeSettings } from "./pages/settings/ThemeSettings";
 import { PatientAppointments } from "./pages/PatientAppointments";
 import { PatientTreatments } from "./pages/PatientTreatments";
 import { PatientBilling } from "./pages/PatientBilling";
+import { Profile } from "./pages/Profile";
 
 import { DoctorAppointments } from "./layouts/doctor/DoctorAppointments";
 import { DoctorCases } from "./layouts/doctor/DoctorCases";
@@ -36,6 +37,7 @@ import { DoctorCaseDetails } from "./layouts/doctor/DoctorCaseDetails";
 import { DoctorPatients } from "./layouts/doctor/DoctorPatients";
 import { DoctorInsights } from "./layouts/doctor/DoctorInsights";
 import { DoctorHelp } from "./layouts/doctor/DoctorHelp";
+import { DoctorLayout } from "./layouts/doctor/DoctorLayout";
 
 import { AdminNotificationsPage } from "./layouts/admin/NotificationsPage";
 import { DoctorNotificationsPage } from "./layouts/doctor/DoctorNotificationsPage";
@@ -50,6 +52,7 @@ import { AdminHelp } from "./layouts/admin/AdminHelp";
 import { AdminCaseTracking } from "./layouts/admin/AdminCaseTracking";
 
 import { PatientHelp } from "./layouts/patient/PatientHelp";
+import { PatientLayout } from "./layouts/patient/PatientLayout";
 
 import { HelpAndContact } from "./pages/HelpAndContact";
 import { ContactSupport } from "./pages/help/ContactSupport";
@@ -177,6 +180,16 @@ export function AppRouter() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/profile"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <Profile />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin redirects (legacy) */}
         <Route path="/admin/dashboard" element={<Navigate to="/admin/overview" replace />} />
@@ -253,6 +266,16 @@ export function AppRouter() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/doctor/profile"
+          element={
+            <ProtectedRoute>
+              <DoctorLayout>
+                <Profile />
+              </DoctorLayout>
+            </ProtectedRoute>
+          }
+        />
 
         {/* Doctor redirects (legacy) */}
         <Route path="/app/DoctorDashboard" element={<Navigate to="/doctor/overview" replace />} />
@@ -307,6 +330,16 @@ export function AppRouter() {
           element={
             <ProtectedRoute>
               <PatientHelp />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/patient/profile"
+          element={
+            <ProtectedRoute>
+              <PatientLayout>
+                <Profile />
+              </PatientLayout>
             </ProtectedRoute>
           }
         />

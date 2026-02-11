@@ -6,6 +6,7 @@ import {
   FileTextIcon,
   CreditCardIcon,
   BellIcon,
+  UserIcon,
 } from "lucide-react";
 import { PatientSidebar } from "./PatientSidebar";
 
@@ -49,7 +50,7 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
     { to: "/patient/appointments", label: "Visits", Icon: CalendarDaysIcon },
     { to: "/patient/treatments", label: "Care", Icon: FileTextIcon },
     { to: "/patient/billing", label: "Billing", Icon: CreditCardIcon },
-    { to: "/patient/alerts", label: "Alerts", Icon: BellIcon },
+    { to: "/patient/profile", label: "Profile", Icon: UserIcon },
   ];
 
   return (
@@ -67,6 +68,13 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
       >
         <header className="flex items-center justify-between px-4 lg:px-6 py-3 border-b border-line bg-surface lg:hidden">
           <div className="text-sm font-semibold text-ink">Patient Portal</div>
+          <NavLink
+            to="/patient/alerts"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+            aria-label="Notifications"
+          >
+            <BellIcon size={16} />
+          </NavLink>
         </header>
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden pb-24 lg:pb-6">
@@ -98,4 +106,3 @@ export const PatientLayout: React.FC<Props> = ({ children }) => {
     </div>
   );
 };
-

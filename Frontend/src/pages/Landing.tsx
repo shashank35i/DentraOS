@@ -111,10 +111,10 @@ export const Landing: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <Link to="/login" className="btn btn-secondary px-3 py-2 text-sm">
+            <Link to="/login" className="btn btn-secondary px-3 py-2 text-sm whitespace-nowrap min-w-[92px]">
               Sign in
             </Link>
-            <Link to="/create-account" className="btn btn-primary px-4 py-2 text-sm">
+            <Link to="/create-account" className="btn btn-primary px-4 py-2 text-sm whitespace-nowrap min-w-[120px]">
               Request access
             </Link>
           </div>
@@ -369,4 +369,5 @@ export const Landing: React.FC = () => {
     </div>
   );
 };
+
 

@@ -5,8 +5,8 @@ import {
   LayoutDashboardIcon,
   CalendarDaysIcon,
   UsersIcon,
-  PackageIcon,
-  LineChartIcon,
+  PackageIcon,\r?\n  BellIcon,
+  UserIcon,
 } from "lucide-react";
 import { AdminSidebar } from "./AdminSidebar";
 
@@ -59,7 +59,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     { to: "/admin/schedule", label: "Schedule", Icon: CalendarDaysIcon },
     { to: "/admin/patients", label: "Patients", Icon: UsersIcon },
     { to: "/admin/inventory", label: "Inventory", Icon: PackageIcon },
-    { to: "/admin/revenue", label: "Revenue", Icon: LineChartIcon },
+    { to: "/admin/profile", label: "Profile", Icon: UserIcon },
   ];
 
   return (
@@ -75,7 +75,16 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           <div className="hidden lg:block text-xs font-semibold tracking-[0.18em] uppercase text-ink-muted">
             Admin Panel
           </div>
-          <div className="text-[11px] text-ink-muted">Dental Clinic - Admin</div>
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] text-ink-muted">Dental Clinic - Admin</div>
+            <NavLink
+              to="/admin/alerts"
+              className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-muted text-ink"
+              aria-label="Notifications"
+            >
+              <BellIcon size={16} />
+            </NavLink>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 lg:px-6 py-6 pb-24 lg:pb-6">
