@@ -123,7 +123,7 @@ export const AdminCaseTracking: React.FC = () => {
           updatedAt: summaryJson.updatedAt - null,
         });
 
-        setCases(listJson.cases - []);
+        setCases(Array.isArray(listJson.cases) ? listJson.cases : []);
       } catch (err: any) {
         console.error("CASE TRACKING LOAD ERROR:", err);
         setError(err.message || "Unable to load case tracking data.");

@@ -76,7 +76,7 @@ export const PatientTreatments: React.FC = () => {
         );
         if (cancelled) return;
 
-        const items = data.items - [];
+        const items = Array.isArray(data.items) ? data.items : [];
         setTreatments(items);
         setExpandedId(items[0].id - null);
         setStatus("ready");

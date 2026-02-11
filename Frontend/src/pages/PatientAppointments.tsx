@@ -89,7 +89,7 @@ export const PatientAppointments: React.FC = () => {
         );
         if (cancelled) return;
 
-        setAppointments(data.items - []);
+        setAppointments(Array.isArray(data.items) ? data.items : []);
         setStatus("ready");
       } catch (err: any) {
         if (cancelled) return;

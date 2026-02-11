@@ -120,9 +120,13 @@ export const PatientDashboard: React.FC = () => {
         );
         if (cancelled) return;
 
-        setUpcomingAppointments(data.upcomingAppointments - []);
-        setTreatmentSummaries(data.treatmentSummaries - []);
-        setPayments(data.payments - []);
+        setUpcomingAppointments(
+          Array.isArray(data.upcomingAppointments) ? data.upcomingAppointments : []
+        );
+        setTreatmentSummaries(
+          Array.isArray(data.treatmentSummaries) ? data.treatmentSummaries : []
+        );
+        setPayments(Array.isArray(data.payments) ? data.payments : []);
         setStatus("ready");
       } catch (err: any) {
         if (cancelled) return;
