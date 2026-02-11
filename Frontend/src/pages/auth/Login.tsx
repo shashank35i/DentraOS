@@ -106,6 +106,7 @@ export const Login: React.FC = () => {
       localStorage.setItem("userRole", normalizedRole);
       localStorage.setItem("userId", data.uid || "");
       localStorage.setItem("userName", data.name || "");
+      localStorage.setItem("userEmail", data.email || email.trim());
 
       redirectAfterAuth(normalizedRole, navigate);
     } catch (err) {

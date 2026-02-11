@@ -1832,6 +1832,7 @@ app.post("/api/auth/register", async (req, res) => {
       message: "User created",
       uid,
       name: String(fullName).trim(),
+      email: normalizedEmail,
       role: normalizeRoleToClient(roleDb),
       token,
     });
@@ -1870,6 +1871,7 @@ app.post("/api/auth/login", async (req, res) => {
       token,
       uid: user.uid,
       name: user.full_name,
+      email: user.email,
       role: normalizeRoleToClient(user.role),
     });
   } catch (err) {
