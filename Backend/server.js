@@ -24,6 +24,22 @@ const paymentGateway = require("./payment_gateway");
 // ✅ AI Case Assistant
 const aiCaseAssistant = require("./ai_case_assistant");
 
+// ============================================================
+// TEMP: schema runner for Railway internal import (remove later)
+// ============================================================
+const runSchemaOnce = async () => {
+  const schemaPath = path.join(__dirname, "db", "schema_query.sql");
+  const sql = fs.readFileSync(schemaPath, "utf8");
+  const statements = sql
+    .split(/;\s*\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const stmt of statements) {
+    await pool.query(stmt);
+  }
+};
+
 const app = express();
 
 
@@ -2119,6 +2135,17 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("AUTH ME ERROR:", err);
     return res.json({ user: req.user });
+  }
+});
+
+// Admin-only: run schema import inside Railway (remove after use)
+app.post("/api/admin/run-schema", authMiddleware, requireRole("Admin"), async (req, res) => {
+  try {
+    await runSchemaOnce();
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("RUN SCHEMA ERROR:", err);
+    return res.status(500).json({ ok: false, message: err?.message || "Schema import failed" });
   }
 });
 
