@@ -110,11 +110,11 @@ export const Landing: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link to="/login" className="btn btn-secondary px-3 py-2 text-sm whitespace-nowrap min-w-[92px]">
+          <div className="flex items-center gap-2 flex-nowrap">
+            <Link to="/login" className="btn btn-secondary px-3 py-2 text-xs sm:text-sm whitespace-nowrap min-w-[92px] shrink-0 leading-none">
               Sign in
             </Link>
-            <Link to="/create-account" className="btn btn-primary px-4 py-2 text-sm whitespace-nowrap min-w-[120px]">
+            <Link to="/create-account" className="btn btn-primary px-4 py-2 text-xs sm:text-sm whitespace-nowrap min-w-[120px] shrink-0 leading-none">
               Request access
             </Link>
           </div>
@@ -256,7 +256,7 @@ export const Landing: React.FC = () => {
                 "Inventory guardrails that prevent urgent reorders",
                 "Revenue insights that highlight improvement areas",
               ].map((item) => (
-                <li key={item} className="flex items-center gap-2">
+                <li key={item} className="flex items-center gap-2 flex-nowrap">
                   <CheckIcon size={16} className="text-brand" />
                   <span>{item}</span>
                 </li>
@@ -369,5 +369,6 @@ export const Landing: React.FC = () => {
     </div>
   );
 };
+
 
 

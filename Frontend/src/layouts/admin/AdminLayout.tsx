@@ -5,7 +5,8 @@ import {
   LayoutDashboardIcon,
   CalendarDaysIcon,
   UsersIcon,
-  PackageIcon,\r?\n  BellIcon,
+  PackageIcon,
+  BellIcon,
   UserIcon,
 } from "lucide-react";
 import { AdminSidebar } from "./AdminSidebar";
@@ -114,4 +115,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
     </div>
   );
 };
+
+
 
