@@ -8,8 +8,10 @@ export const clearAuth = () => {
   try {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem("role");
+    localStorage.removeItem("userRole");
     localStorage.removeItem("userName");
     localStorage.removeItem("userId");
+    localStorage.removeItem("userEmail");
   } catch {
     // ignore
   }

@@ -238,13 +238,14 @@ export const CreateAccount: React.FC = () => {
       setGeneratedId(data.uid || "");
 
       const apiRole = normalizeRoleString(data.role);
-      const normalizedRole: Role = apiRole - roleUpper;
+      const normalizedRole: Role = apiRole || roleUpper;
 
       if (data.token) {
         localStorage.setItem("authToken", data.token);
         localStorage.setItem("userRole", normalizedRole);
         localStorage.setItem("userId", data.uid || "");
         localStorage.setItem("userName", data.name || formData.fullName);
+        localStorage.setItem("userEmail", data.email || email);
 
         redirectAfterAuth(normalizedRole, navigate);
         return;
@@ -272,12 +273,13 @@ export const CreateAccount: React.FC = () => {
           return;
         }
 
-        const finalRole = normalizeRoleString(loginData.role) - normalizedRole;
+        const finalRole = normalizeRoleString(loginData.role) || normalizedRole;
 
         localStorage.setItem("authToken", loginData.token);
         localStorage.setItem("userRole", finalRole);
         localStorage.setItem("userId", loginData.uid || data.uid || "");
         localStorage.setItem("userName", loginData.name || formData.fullName);
+        localStorage.setItem("userEmail", loginData.email || data.email || email);
 
         redirectAfterAuth(finalRole, navigate);
       } catch (fallbackErr) {
