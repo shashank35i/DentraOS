@@ -67,6 +67,7 @@ export const Landing: React.FC = () => {
     { label: "Role-based workspaces", value: "3 portals" },
     { label: "Automation agents", value: "4 agents" },
     { label: "Core workflows", value: "Appointments, Inventory, Revenue, Cases" },
+    { label: "Built for teams", value: "Admin, Doctor, Patient" },
   ];
 
   const roles = [
@@ -140,10 +141,19 @@ export const Landing: React.FC = () => {
               A calm, intelligent home for every dental visit.
             </h1>
             <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-2xl">
-              DentraOS connects scheduling, treatments, inventory, and revenue into one
-              trusted workspace. AI agents handle repetitive tasks so your team can
-              focus on care.
+              DentraOS is a modern clinical OS built for dentistry. It unifies scheduling,
+              treatment tracking, inventory, and billing into a single trusted workspace.
+              AI agents handle the repetitive work so your team can focus on care.
             </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 text-xs">
+              {metrics.map((m) => (
+                <div key={m.label} className="surface-muted rounded-xl px-3 py-2">
+                  <div className="text-[11px] text-ink-muted">{m.label}</div>
+                  <div className="font-semibold text-ink">{m.value}</div>
+                </div>
+              ))}
+            </div>
 
             <div className="mt-7 flex flex-col sm:flex-row gap-3">
               <Link to="/login" className="btn btn-primary w-full sm:w-auto text-center">
@@ -154,12 +164,11 @@ export const Landing: React.FC = () => {
               </Link>
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-3 text-xs">
-              {metrics.map((m) => (
-                <div key={m.label} className="surface-muted rounded-xl px-3 py-2">
-                  <div className="text-[11px] text-ink-muted">{m.label}</div>
-                  <div className="font-semibold text-ink">{m.value}</div>
-                </div>
+            <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+              {benefits.map((b) => (
+                <span key={b} className="pill">
+                  {b}
+                </span>
               ))}
             </div>
           </div>
@@ -189,14 +198,6 @@ export const Landing: React.FC = () => {
                 </div>
               ))}
             </div>
-
-            <div className="mt-5 flex flex-wrap gap-2 text-xs text-ink-muted">
-              {benefits.map((b) => (
-                <span key={b} className="pill">
-                  {b}
-                </span>
-              ))}
-            </div>
           </div>
         </div>
       </header>
@@ -210,9 +211,8 @@ export const Landing: React.FC = () => {
                 Built like the best AI products: clean, focused, and fast.
               </h2>
               <p className="mt-3 text-sm text-ink-muted">
-                DentraOS is a modern clinical OS designed for dental practices. It combines
-                role-based workspaces, live operational insights, and AI automation so teams
-                move faster with fewer mistakes and better patient outcomes.
+                DentraOS combines role-based workspaces, live operational insights, and AI
+                automation so teams move faster with fewer mistakes and better patient outcomes.
               </p>
             </div>
             <div className="surface-muted rounded-2xl p-5">
