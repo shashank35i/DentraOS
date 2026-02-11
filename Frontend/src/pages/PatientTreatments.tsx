@@ -77,8 +77,12 @@ export const PatientTreatments: React.FC = () => {
         if (cancelled) return;
 
         const items = Array.isArray(data.items) ? data.items : [];
-        setTreatments(items);
-        setExpandedId(items.length ? items[0].id : null);
+        const safeItems = items.filter(
+          (item): item is Treatment =>
+            !!item && typeof item === "object" && "id" in item
+        );
+        setTreatments(safeItems);
+        setExpandedId(safeItems.length ? safeItems[0].id : null);
         setStatus("ready");
       } catch (err: any) {
         if (cancelled) return;
