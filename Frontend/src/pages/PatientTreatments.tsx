@@ -78,7 +78,7 @@ export const PatientTreatments: React.FC = () => {
 
         const items = Array.isArray(data.items) ? data.items : [];
         setTreatments(items);
-        setExpandedId(items[0].id - null);
+        setExpandedId(items.length ? items[0].id : null);
         setStatus("ready");
       } catch (err: any) {
         if (cancelled) return;
@@ -133,7 +133,7 @@ export const PatientTreatments: React.FC = () => {
           <div className="kpi-card">
             <p className="text-xs text-ink-muted">Latest update</p>
             <p className="text-2xl font-semibold text-ink">
-              {status === "ready" && treatments[0].lastUpdated
+              {status === "ready" && treatments[0]?.lastUpdated
                 ? treatments[0].lastUpdated
                 : "--"}
             </p>
