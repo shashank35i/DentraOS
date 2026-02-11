@@ -98,7 +98,7 @@ export const Landing: React.FC = () => {
       <div className="pointer-events-none absolute top-60 left-[-10%] h-80 w-80 rounded-full bg-sky-400/10 blur-[110px]" />
 
       <nav className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl border border-line bg-surface-muted grid place-items-center font-semibold text-ink">
               DO
@@ -109,23 +109,22 @@ export const Landing: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
+          <div className="flex items-center gap-2">
+            <Link to="/login" className="btn btn-secondary px-3 py-2 text-sm">
+              Sign in
+            </Link>
+            <Link to="/create-account" className="btn btn-primary px-4 py-2 text-sm">
+              Request access
+            </Link>
+          </div>
+        </div>
+
+        <div className="hidden sm:block border-t border-line">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-11 flex items-center gap-4 text-xs text-ink-muted">
             <a href="#about" className="hover:text-ink">About</a>
             <a href="#features" className="hover:text-ink">Features</a>
             <a href="#agents" className="hover:text-ink">Agents</a>
             <a href="#roles" className="hover:text-ink">Roles</a>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 w-full sm:w-auto">
-            <Link
-              to="/login"
-              className="text-sm font-medium text-ink-muted hover:text-ink self-start sm:self-auto"
-            >
-              Login
-            </Link>
-            <Link to="/create-account" className="btn btn-primary w-full sm:w-auto text-center">
-              Request access
-            </Link>
           </div>
         </div>
       </nav>
@@ -142,7 +141,7 @@ export const Landing: React.FC = () => {
             </h1>
             <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-2xl">
               DentraOS connects scheduling, treatments, inventory, and revenue into one
-              trusted workspace. AI agents handle the repetitive work so your team can
+              trusted workspace. AI agents handle repetitive tasks so your team can
               focus on care.
             </p>
 

@@ -24,6 +24,24 @@
   --shadow-card: 0 18px 60px -36px rgba(19, 33, 45, 0.35);
 }
 
+.dark {
+  --canvas: #0c0f12;
+  --canvas-strong: #11161b;
+  --surface: #141a20;
+  --surface-muted: #1c232b;
+  --ink: #edf2f7;
+  --ink-muted: #a0aec0;
+  --line: #26303a;
+  --brand: #36b7a3;
+  --brand-strong: #1f8c7c;
+  --accent: #d2a670;
+  --success: #3cc98a;
+  --warn: #f0a267;
+  --danger: #ef6a67;
+  --shadow-soft: 0 18px 44px -30px rgba(0, 0, 0, 0.6);
+  --shadow-card: 0 28px 70px -46px rgba(0, 0, 0, 0.8);
+}
+
 @layer base {
   body {
     @apply font-sans text-[color:var(--ink)];
