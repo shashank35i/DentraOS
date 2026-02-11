@@ -240,8 +240,11 @@ export const Login: React.FC = () => {
               </button>
             </form>
 
-            <div className="mt-5 pt-4 border-t border-line text-[12px] text-ink-muted">
-              Need access? Contact your clinic administrator.
+            <div className="mt-5 pt-4 border-t border-line text-[12px] text-ink-muted flex flex-wrap items-center justify-between gap-2">
+              <span>Need access?</span>
+              <Link to="/create-account" className="font-semibold text-ink hover:opacity-80">
+                Create account
+              </Link>
             </div>
           </div>
         </div>
