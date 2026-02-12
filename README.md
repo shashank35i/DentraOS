@@ -7,7 +7,7 @@
     <img src="https://img.shields.io/badge/Languages-TypeScript%20%7C%20Python%20%7C%20SQL-2EA44F" alt="Languages" />
     <img src="https://img.shields.io/badge/Backend-Node%20%2B%20Express-0aa06e" alt="Backend" />
     <img src="https://img.shields.io/badge/Status-Active-1f8f5f" alt="Status" />
-    <img src="https://img.shields.io/badge/License-MIT-1F6FEB" alt="License" />
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-1F6FEB" alt="License" /></a>
   </p>
   <p><strong>Built by Shashank Preetham Pendyala</strong></p>
 </div>
@@ -385,4 +385,4 @@ cd Frontend; npm run test:e2e
 
 ## License
 
-MIT License. See `LICENSE`.
+MIT License. See [LICENSE](LICENSE).
