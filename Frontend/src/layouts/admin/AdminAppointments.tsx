@@ -141,22 +141,40 @@ export const AdminAppointments: React.FC = () => {
         });
         if (!resPatients.ok) throw new Error(`Patients status ${resPatients.status}`);
         const dataPatients = await resPatients.json();
-        const patientItems: UserOption[] = (dataPatients.items || []).map((p: any) => ({
-          id: p.id,
-          name: p.name || p.full_name || "Unknown patient",
-          phone: p.phone ?? null,
-        }));
+        const rawPatients = Array.isArray(dataPatients?.items)
+          ? dataPatients.items
+          : Array.isArray(dataPatients?.patients)
+          ? dataPatients.patients
+          : Array.isArray(dataPatients?.users)
+          ? dataPatients.users
+          : [];
+        const patientItems: UserOption[] = rawPatients
+          .filter((p: any) => p && (p.id || p.uid))
+          .map((p: any) => ({
+            id: String(p.id ?? p.uid),
+            name: p.name || p.full_name || p.fullName || "Unknown patient",
+            phone: p.phone ?? null,
+          }));
 
         const resDoctors = await fetch(`${ADMIN_API}/doctors`, {
           headers: getAuthHeaders(),
         });
         if (!resDoctors.ok) throw new Error(`Doctors status ${resDoctors.status}`);
         const dataDoctors = await resDoctors.json();
-        const doctorItems: UserOption[] = (dataDoctors.items || []).map((d: any) => ({
-          id: d.id,
-          name: d.name || d.full_name || "Unknown doctor",
-          phone: d.phone ?? null,
-        }));
+        const rawDoctors = Array.isArray(dataDoctors?.items)
+          ? dataDoctors.items
+          : Array.isArray(dataDoctors?.doctors)
+          ? dataDoctors.doctors
+          : Array.isArray(dataDoctors?.users)
+          ? dataDoctors.users
+          : [];
+        const doctorItems: UserOption[] = rawDoctors
+          .filter((d: any) => d && (d.id || d.uid))
+          .map((d: any) => ({
+            id: String(d.id ?? d.uid),
+            name: d.name || d.full_name || d.fullName || "Unknown doctor",
+            phone: d.phone ?? null,
+          }));
 
         setPatients(patientItems);
         setDoctors(doctorItems);
