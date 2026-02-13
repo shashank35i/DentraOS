@@ -70,6 +70,8 @@ type SuggestedSlot = {
 export const AdminAppointments: React.FC = () => {
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [search, setSearch] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -176,6 +178,10 @@ export const AdminAppointments: React.FC = () => {
   }, [showCreate, patients.length, doctors.length]);
 
   const filtered = appointments.filter((apt) => {
+    const matchesStatus =
+      statusFilter === "ALL" ||
+      String(apt.status || "").toUpperCase() === String(statusFilter).toUpperCase();
+    if (!matchesStatus) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -308,15 +314,42 @@ export const AdminAppointments: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap gap-2 text-xs">
-            <button type="button" className="ghost-button">
+            <button type="button" onClick={() => setFiltersOpen((v) => !v)} className="ghost-button">
               <FilterIcon size={14} />
-              Filters
+              {filtersOpen ? "Hide filters" : "Filters"}
             </button>
             <button type="button" onClick={openCreateModal} className="btn btn-primary text-xs">
               New appointment
             </button>
           </div>
         </div>
+
+        {filtersOpen && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-xl border border-line bg-surface px-3 py-1.5 text-xs text-ink"
+            >
+              <option value="ALL">All statuses</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Checked in">Checked in</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+              <option value="Requested">Requested</option>
+            </select>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setStatusFilter("ALL");
+                setSearch("");
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        )}
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="kpi-card">

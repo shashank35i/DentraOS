@@ -73,6 +73,7 @@ export const AdminCaseTracking: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [stageFilter, setStageFilter] = useState<CaseStage | "ALL">("ALL");
   const [riskFilter, setRiskFilter] = useState<"ALL" | "HIGH_ONLY">("ALL");
 
@@ -276,9 +277,9 @@ export const AdminCaseTracking: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap gap-2 text-xs">
-            <button type="button" className="ghost-button">
+            <button type="button" onClick={() => setFiltersOpen((v) => !v)} className="ghost-button">
               <FilterIcon size={14} />
-              Filters
+              {filtersOpen ? "Hide filters" : "Filters"}
             </button>
             <button
               type="button"
@@ -373,6 +374,7 @@ export const AdminCaseTracking: React.FC = () => {
             />
           </div>
 
+          {filtersOpen && (
           <div className="flex flex-wrap gap-2">
             {(
               [
@@ -406,6 +408,7 @@ export const AdminCaseTracking: React.FC = () => {
               </button>
             ))}
           </div>
+          )}
         </div>
 
         {error && (

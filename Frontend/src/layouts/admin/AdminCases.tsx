@@ -82,6 +82,8 @@ const stagePillClass = (stage: CaseStage) => {
 export const AdminCases: React.FC = () => {
   const [cases, setCases] = useState<CaseCard[]>([]);
   const [search, setSearch] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [stageFilter, setStageFilter] = useState<CaseStage | "ALL">("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,9 +119,10 @@ export const AdminCases: React.FC = () => {
   }, []);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return cases;
     const q = search.toLowerCase();
     return cases.filter((c) => {
+      if (stageFilter !== "ALL" && c.stage !== stageFilter) return false;
+      if (!search.trim()) return true;
       return (
         c.id.toLowerCase().includes(q) ||
         c.patient.toLowerCase().includes(q) ||
@@ -127,7 +130,7 @@ export const AdminCases: React.FC = () => {
         c.type.toLowerCase().includes(q)
       );
     });
-  }, [cases, search]);
+  }, [cases, search, stageFilter]);
 
   const pipelineCounts = useMemo(() => {
     const counts: Record<CaseStage, number> = {
@@ -156,12 +159,43 @@ export const AdminCases: React.FC = () => {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
-            <button className="ghost-button">
+            <button className="ghost-button" onClick={() => setFiltersOpen((v) => !v)}>
               <FilterIcon size={14} />
-              Filters
+              {filtersOpen ? "Hide filters" : "Filters"}
             </button>
           </div>
         </div>
+
+        {filtersOpen && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <button
+              type="button"
+              className={stageFilter === "ALL" ? "btn btn-primary text-xs" : "btn btn-secondary text-xs"}
+              onClick={() => setStageFilter("ALL")}
+            >
+              All stages
+            </button>
+            {(
+              [
+                "NEW",
+                "IN_TREATMENT",
+                "WAITING_ON_PATIENT",
+                "READY_TO_CLOSE",
+                "BLOCKED",
+                "CLOSED",
+              ] as CaseStage[]
+            ).map((stage) => (
+              <button
+                key={stage}
+                type="button"
+                className={stageFilter === stage ? "btn btn-primary text-xs" : "btn btn-secondary text-xs"}
+                onClick={() => setStageFilter(stage)}
+              >
+                {stageLabel[stage]}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="mt-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 text-xs">
           {(
