@@ -5579,6 +5579,55 @@ app.patch(
         createdByUserId: req.user?.id || null,
       });
 
+      // Notify all role views about admin stage/priority update
+      try {
+        const [ctxRows] = await pool.query(
+          `SELECT case_uid, patient_id, doctor_id FROM cases WHERE id = ? LIMIT 1`,
+          [caseId]
+        );
+        const ctx = ctxRows?.[0] || {};
+        const stageTxt = stage ? ` stage -> ${String(stage)}` : "";
+        const priorityTxt = priority ? ` priority -> ${String(priority)}` : "";
+        const summary = `${ctx.case_uid || `CASE-${caseId}`}${stageTxt}${priorityTxt}`;
+
+        await insertNotificationInline({
+          userRole: "Admin",
+          title: "Case Updated",
+          message: `Admin updated ${summary}.`,
+          notifType: "CASE_UPDATED",
+          relatedType: "cases",
+          relatedId: caseId,
+          meta: { caseId, caseUid: ctx.case_uid || null, stage: stage || null, priority: priority || null },
+          priority: 145,
+        });
+        if (ctx.doctor_id) {
+          await insertNotificationInline({
+            userId: ctx.doctor_id,
+            title: "Case Update",
+            message: `${summary}.`,
+            notifType: "CASE_UPDATED",
+            relatedType: "cases",
+            relatedId: caseId,
+            meta: { caseId, caseUid: ctx.case_uid || null, stage: stage || null, priority: priority || null },
+            priority: 140,
+          });
+        }
+        if (ctx.patient_id) {
+          await insertNotificationInline({
+            userId: ctx.patient_id,
+            title: "Treatment Case Update",
+            message: `Your case ${ctx.case_uid || `CASE-${caseId}`} was updated.`,
+            notifType: "CASE_UPDATED",
+            relatedType: "cases",
+            relatedId: caseId,
+            meta: { caseId, caseUid: ctx.case_uid || null, stage: stage || null, priority: priority || null },
+            priority: 135,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("CASE UPDATE notification error:", notifyErr);
+      }
+
       const [rows] = await pool.query("SELECT updated_at FROM cases WHERE id = ?", [caseId]);
       const row = rows[0];
 
@@ -6101,6 +6150,41 @@ app.patch(
         createdByUserId: req.user?.id || null,
       });
 
+      try {
+        const [ctxRows] = await pool.query(
+          `SELECT case_uid, patient_id FROM cases WHERE id = ? LIMIT 1`,
+          [dbId]
+        );
+        const ctx = ctxRows?.[0] || {};
+        const stageLabel = stage ? String(stage) : "details";
+
+        await insertNotificationInline({
+          userRole: "Admin",
+          title: "Doctor Updated Case",
+          message: `Case ${ctx.case_uid || `CASE-${dbId}`} updated (${stageLabel}).`,
+          notifType: "CASE_UPDATED",
+          relatedType: "cases",
+          relatedId: dbId,
+          meta: { caseId: dbId, caseUid: ctx.case_uid || null, stage: stage || null },
+          priority: 140,
+        });
+
+        if (ctx.patient_id) {
+          await insertNotificationInline({
+            userId: ctx.patient_id,
+            title: "Case Progress Updated",
+            message: `Your case ${ctx.case_uid || `CASE-${dbId}`} has new progress updates.`,
+            notifType: "CASE_UPDATED",
+            relatedType: "cases",
+            relatedId: dbId,
+            meta: { caseId: dbId, caseUid: ctx.case_uid || null, stage: stage || null },
+            priority: 130,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("DOCTOR CASE UPDATE notification error:", notifyErr);
+      }
+
       const [rows] = await pool.query(
         `SELECT updated_at FROM cases WHERE id = ? LIMIT 1`,
         [dbId]
@@ -6334,6 +6418,43 @@ app.post(
         payload: { caseDbId: newId, stage: stageDb, nextAction: "Case created" },
         createdByUserId: req.user?.id || null,
       });
+
+      try {
+        await insertNotificationInline({
+          userRole: "Admin",
+          title: "New Case Created",
+          message: `Doctor created case ${caseUid} for ${nameTrimmed}.`,
+          notifType: "CASE_CREATED",
+          relatedType: "cases",
+          relatedId: newId,
+          meta: { caseId: newId, caseUid, patientId, doctorId, diagnosis, stage: stageDb },
+          priority: 145,
+        });
+        await insertNotificationInline({
+          userId: doctorId,
+          title: "Case Created",
+          message: `Case ${caseUid} was created successfully.`,
+          notifType: "CASE_CREATED",
+          relatedType: "cases",
+          relatedId: newId,
+          meta: { caseId: newId, caseUid, patientId, doctorId, diagnosis, stage: stageDb },
+          priority: 135,
+        });
+        if (patientId) {
+          await insertNotificationInline({
+            userId: patientId,
+            title: "Treatment Case Opened",
+            message: `A new treatment case (${caseUid}) has been opened for you.`,
+            notifType: "CASE_CREATED",
+            relatedType: "cases",
+            relatedId: newId,
+            meta: { caseId: newId, caseUid, patientId, doctorId, diagnosis, stage: stageDb },
+            priority: 130,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("DOCTOR CREATE CASE notification error:", notifyErr);
+      }
 
       const [rows] = await pool.query(
         `SELECT case_uid AS caseId, case_type AS diagnosis, next_action AS toothRegion, stage, agent_summary AS agentSummary,
