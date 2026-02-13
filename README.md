@@ -54,9 +54,7 @@ Success is measured by:
 
 ## Demo
 
-<video src="demos/dentraos_demo.webm" controls width="100%"></video>
-
-- Direct file link: [demos/dentraos_demo.webm](demos/dentraos_demo.webm)
+![DentraOS Demo](demos/dentraos_demo.gif)
 
 ---
 
