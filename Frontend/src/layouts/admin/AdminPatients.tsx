@@ -40,7 +40,19 @@ export const AdminPatients: React.FC = () => {
         });
         if (!res.ok) throw new Error(`Status ${res.status}`);
         const data = await res.json();
-        setPatients(data.items || []);
+        const raw = Array.isArray(data?.patients)
+          ? data.patients
+          : Array.isArray(data?.items)
+          ? data.items
+          : [];
+        const mapped: PatientRow[] = raw.map((p: any) => ({
+          id: String(p.id ?? p.uid ?? ""),
+          name: String(p.name ?? p.full_name ?? "Unknown patient"),
+          phone: p.phone ?? null,
+          lastVisit: p.lastVisit ?? p.last_appointment ?? null,
+          status: String(p.status ?? "Active"),
+        }));
+        setPatients(mapped);
       } catch (err) {
         console.error("AdminPatients error:", err);
         setError("Failed to load patients.");
@@ -57,9 +69,9 @@ export const AdminPatients: React.FC = () => {
     const q = search.toLowerCase();
     return patients.filter((p) => {
       return (
-        p.id.toLowerCase().includes(q) ||
-        p.name.toLowerCase().includes(q) ||
-        (p.phone || "").toLowerCase().includes(q)
+        String(p.id || "").toLowerCase().includes(q) ||
+        String(p.name || "").toLowerCase().includes(q) ||
+        String(p.phone || "").toLowerCase().includes(q)
       );
     });
   }, [patients, search]);

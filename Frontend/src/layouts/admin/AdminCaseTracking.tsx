@@ -77,6 +77,13 @@ export const AdminCaseTracking: React.FC = () => {
   const [riskFilter, setRiskFilter] = useState<"ALL" | "HIGH_ONLY">("ALL");
 
   const token = localStorage.getItem("authToken");
+  const safeSummary: CaseTrackingSummary = summary ?? {
+    totalCases: 0,
+    highRiskCount: 0,
+    needsFollowUpCount: 0,
+    byStage: {},
+    updatedAt: null,
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -91,7 +98,7 @@ export const AdminCaseTracking: React.FC = () => {
 
         const [summaryRes, listRes] = await Promise.all([
           fetch(`${ADMIN_API}/cases/tracking-summary`, { headers }),
-          fetch(`${ADMIN_API}/cases/tracking-listlimit=50`, { headers }),
+          fetch(`${ADMIN_API}/cases/tracking-list?limit=50`, { headers }),
         ]);
 
         if (!summaryRes.ok) {
@@ -114,13 +121,20 @@ export const AdminCaseTracking: React.FC = () => {
 
         const summaryJson = await summaryRes.json();
         const listJson = await listRes.json();
+        const byStageRaw =
+          summaryJson && typeof summaryJson.byStage === "object" && summaryJson.byStage
+            ? summaryJson.byStage
+            : {};
+        const normalizedByStage = Object.fromEntries(
+          Object.entries(byStageRaw).map(([k, v]) => [String(k).toUpperCase(), Number(v || 0)])
+        ) as Partial<Record<CaseStage, number>>;
 
         setSummary({
-          totalCases: summaryJson.totalCases - 0,
-          highRiskCount: summaryJson.highRiskCount - 0,
-          needsFollowUpCount: summaryJson.needsFollowUpCount - 0,
-          byStage: summaryJson.byStage - {},
-          updatedAt: summaryJson.updatedAt - null,
+          totalCases: Number(summaryJson?.totalCases || 0),
+          highRiskCount: Number(summaryJson?.highRiskCount || 0),
+          needsFollowUpCount: Number(summaryJson?.needsFollowUpCount || 0),
+          byStage: normalizedByStage,
+          updatedAt: summaryJson?.updatedAt ? String(summaryJson.updatedAt) : null,
         });
 
         setCases(Array.isArray(listJson.cases) ? listJson.cases : []);
@@ -289,10 +303,10 @@ export const AdminCaseTracking: React.FC = () => {
                 <ClipboardListIcon size={14} className="text-brand" />
               </div>
               <p className="text-2xl font-semibold text-ink">
-                {summary.totalCases ?? "--"}
+                {safeSummary.totalCases ?? "--"}
               </p>
               <p className="mt-1 text-[11px] text-ink-muted">
-                New: {summary.byStage.NEW ?? 0} - In treatment: {summary.byStage.IN_TREATMENT ?? 0}
+                New: {safeSummary.byStage.NEW ?? 0} - In treatment: {safeSummary.byStage.IN_TREATMENT ?? 0}
               </p>
             </div>
 
@@ -302,7 +316,7 @@ export const AdminCaseTracking: React.FC = () => {
                 <AlertTriangleIcon size={14} className="text-rose-600" />
               </div>
               <p className="text-2xl font-semibold text-ink">
-                {summary.highRiskCount ?? "--"}
+                {safeSummary.highRiskCount ?? "--"}
               </p>
               <p className="mt-1 text-[11px] text-ink-muted">
                 Based on AI risk scoring.
@@ -315,7 +329,7 @@ export const AdminCaseTracking: React.FC = () => {
                 <ClockIcon size={14} className="text-amber-600" />
               </div>
               <p className="text-2xl font-semibold text-ink">
-                {summary.needsFollowUpCount ?? "--"}
+                {safeSummary.needsFollowUpCount ?? "--"}
               </p>
               <p className="mt-1 text-[11px] text-ink-muted">
                 Next review is due today.
@@ -335,9 +349,9 @@ export const AdminCaseTracking: React.FC = () => {
               Once wired to your LLM endpoint, this panel will pull a daily summary
               of blocked or high-risk cases and propose next actions for the team.
             </p>
-            {summary.updatedAt && (
+            {safeSummary.updatedAt && (
               <p className="mt-3 text-[11px] text-ink-muted">
-                Last refreshed: {formatDate(summary.updatedAt)}
+                Last refreshed: {formatDate(safeSummary.updatedAt)}
               </p>
             )}
           </div>
@@ -384,9 +398,9 @@ export const AdminCaseTracking: React.FC = () => {
                 }
               >
                 {stage === "ALL" ? "All" : stageLabel[stage as CaseStage]}
-                {stage !== "ALL" && summary.byStage[stage as CaseStage] != null && (
+                {stage !== "ALL" && safeSummary.byStage[stage as CaseStage] != null && (
                   <span className="ml-1 text-[10px] opacity-70">
-                    {summary.byStage[stage as CaseStage]}
+                    {safeSummary.byStage[stage as CaseStage]}
                   </span>
                 )}
               </button>
