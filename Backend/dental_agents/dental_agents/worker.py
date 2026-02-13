@@ -41,6 +41,18 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _int_env_any(names: list[str], default: int) -> int:
+    for n in names:
+        v = os.environ.get(n)
+        if v is None:
+            continue
+        try:
+            return int(v)
+        except Exception:
+            continue
+    return default
+
+
 def _log(worker_id: str, msg: str) -> None:
     print(f"[worker:{worker_id}] {msg}", flush=True)
 
@@ -68,13 +80,13 @@ def _dispatch_agents(event_type: str):
 
 
 def main() -> None:
-    worker_id = _env("WORKER_ID", "py-worker-1")
-    poll_ms = _int_env("POLL_INTERVAL_MS", 800)
-    lock_seconds = _int_env("EVENT_LOCK_SECONDS", 60)
-    retry_delay = _int_env("EVENT_RETRY_DELAY_SEC", 20)
-    monitor_interval_min = _int_env("INVENTORY_MONITOR_INTERVAL_MIN", 60)
-    revenue_monitor_interval_min = _int_env("REVENUE_MONITOR_INTERVAL_MIN", 60)
-    case_monitor_interval_min = _int_env("CASE_MONITOR_INTERVAL_MIN", 1440)  # default daily
+    worker_id = _env("WORKER_ID", _config.WORKER_ID if hasattr(_config, "WORKER_ID") else "py-worker-1")
+    poll_ms = _int_env_any(["POLL_INTERVAL_MS", "POLL_MS"], getattr(_config, "POLL_MS", 800))
+    lock_seconds = _int_env_any(["EVENT_LOCK_SECONDS", "LOCK_TTL_SECONDS"], getattr(_config, "LOCK_TTL_SECONDS", 60))
+    retry_delay = _int_env_any(["EVENT_RETRY_DELAY_SEC"], 20)
+    monitor_interval_min = _int_env_any(["INVENTORY_MONITOR_INTERVAL_MIN"], 60)
+    revenue_monitor_interval_min = _int_env_any(["REVENUE_MONITOR_INTERVAL_MIN"], 60)
+    case_monitor_interval_min = _int_env_any(["CASE_MONITOR_INTERVAL_MIN"], 1440)  # default daily
 
     try:
         conn = get_conn()

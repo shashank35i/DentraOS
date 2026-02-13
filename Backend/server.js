@@ -4330,23 +4330,76 @@ app.post(
     try {
       const { agent } = req.body || {};
       if (!agent) return res.status(400).json({ message: "agent required" });
+      const normalized = String(agent).trim().toLowerCase();
 
       // Legacy Node direct-run hooks (optional)
-      if (agent === "appointment" && runAppointmentAgentOnce) return res.json(await runAppointmentAgentOnce(pool));
-      if (agent === "inventory" && runInventoryAgentOnce) return res.json(await runInventoryAgentOnce(pool));
-      if (agent === "revenue" && runRevenueAgentOnce) return res.json(await runRevenueAgentOnce(pool));
+      if (normalized === "appointment" && runAppointmentAgentOnce) return res.json(await runAppointmentAgentOnce(pool));
+      if (normalized === "inventory" && runInventoryAgentOnce) return res.json(await runInventoryAgentOnce(pool));
+      if (normalized === "revenue" && runRevenueAgentOnce) return res.json(await runRevenueAgentOnce(pool));
 
-      // ✅ Python agents: enqueue a generic "AgentRunRequested" event
+      // Python worker path: enqueue actionable events (not a no-op marker)
+      const eventMap = {
+        appointment: "AppointmentMonitorTick",
+        inventory: "InventoryMonitorTick",
+        revenue: "RevenueMonitorTick",
+        case: "CaseMonitorTick",
+        case_tracking: "CaseMonitorTick",
+      };
+      const eventType = eventMap[normalized];
+      if (!eventType) {
+        return res.status(400).json({ message: "Unknown agent. Use appointment|inventory|revenue|case" });
+      }
+
       await enqueueEventCompat({
-        eventType: "AgentRunRequested",
-        payload: { agent: String(agent).toLowerCase() },
+        eventType,
+        payload: { source: "admin_run", requestedAgent: normalized },
         createdByUserId: req.user?.id || null,
       });
 
-      return res.json({ ok: true, queued: true, agent });
+      return res.json({ ok: true, queued: true, agent: normalized, eventType });
     } catch (err) {
       console.error("AGENT RUN ERROR:", err);
       return res.json({ error: true });
+    }
+  }
+);
+
+app.get(
+  `${ADMIN_BASE}/agents/status`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (_req, res) => {
+    try {
+      const items = await safeQuery(
+        "AGENT STATUS COUNTS",
+        `SELECT event_type AS eventType, status, COUNT(*) AS count
+         FROM agent_events
+         GROUP BY event_type, status
+         ORDER BY event_type, status`,
+        []
+      );
+
+      const recent = await safeQuery(
+        "AGENT STATUS RECENT",
+        `SELECT id, event_type AS eventType, status, locked_by AS lockedBy, last_error AS lastError, created_at AS createdAt, updated_at AS updatedAt
+         FROM agent_events
+         ORDER BY id DESC
+         LIMIT 50`,
+        []
+      );
+
+      const summary = {};
+      for (const row of items || []) {
+        const k = row.eventType || "Unknown";
+        if (!summary[k]) summary[k] = { NEW: 0, PROCESSING: 0, DONE: 0, FAILED: 0, DEAD: 0 };
+        const s = String(row.status || "").toUpperCase();
+        if (summary[k][s] !== undefined) summary[k][s] = Number(row.count || 0);
+      }
+
+      return res.json({ ok: true, summary, recent: recent || [] });
+    } catch (err) {
+      console.error("AGENT STATUS ERROR:", err);
+      return res.status(500).json({ ok: false, message: "Failed to fetch agent status" });
     }
   }
 );
