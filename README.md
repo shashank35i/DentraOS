@@ -28,6 +28,7 @@ Success is measured by:
 
 ## Table of Contents
 
+- [Demo](#demo)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Layered Architecture](#layered-architecture)
@@ -48,6 +49,12 @@ Success is measured by:
 - [Troubleshooting](#troubleshooting)
 - [Roadmap](#roadmap)
 - [License](#license)
+
+---
+
+## Demo
+
+- Walkthrough video: [demos/dentraos_demo.webm](demos/dentraos_demo.webm)
 
 ---
 
