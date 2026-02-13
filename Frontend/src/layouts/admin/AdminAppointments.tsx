@@ -163,8 +163,8 @@ export const AdminAppointments: React.FC = () => {
 
         setCreateForm((prev) => ({
           ...prev,
-          patientUid: prev.patientUid || patientItems[0].id || "",
-          doctorUid: prev.doctorUid || doctorItems[0].id || "",
+          patientUid: prev.patientUid || patientItems[0]?.id || "",
+          doctorUid: prev.doctorUid || doctorItems[0]?.id || "",
         }));
       } catch (err: any) {
         console.error("AdminAppointments people load error:", err);
