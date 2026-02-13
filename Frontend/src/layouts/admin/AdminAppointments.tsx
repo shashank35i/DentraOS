@@ -107,7 +107,7 @@ export const AdminAppointments: React.FC = () => {
         setError(null);
 
         const res = await fetch(
-          `${ADMIN_API}/appointmentsdate=${encodeURIComponent(todayStr)}`,
+          `${ADMIN_API}/appointments?date=${encodeURIComponent(todayStr)}`,
           { headers: getAuthHeaders() }
         );
         if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -142,7 +142,7 @@ export const AdminAppointments: React.FC = () => {
         const patientItems: UserOption[] = (dataPatients.items || []).map((p: any) => ({
           id: p.id,
           name: p.name || p.full_name || "Unknown patient",
-          phone: p.phone - null,
+          phone: p.phone ?? null,
         }));
 
         const resDoctors = await fetch(`${ADMIN_API}/doctors`, {
@@ -153,7 +153,7 @@ export const AdminAppointments: React.FC = () => {
         const doctorItems: UserOption[] = (dataDoctors.items || []).map((d: any) => ({
           id: d.id,
           name: d.name || d.full_name || "Unknown doctor",
-          phone: d.phone - null,
+          phone: d.phone ?? null,
         }));
 
         setPatients(patientItems);
