@@ -4019,6 +4019,46 @@ app.post(
         createdByUserId: req.user?.id || null,
       });
 
+      // In-app notifications for all relevant roles on appointment creation
+      try {
+        const pretty = `${dateStr} ${String(timeStr).slice(0, 5)}`;
+
+        await insertNotificationInline({
+          userRole: "Admin",
+          title: "Appointment Created",
+          message: `Appointment #${appointmentDbId} created for ${pretty}.`,
+          notifType: "APPOINTMENT_CREATED",
+          relatedType: "appointments",
+          relatedId: appointmentDbId,
+          meta: { appointmentUid, patientId, doctorId, date: dateStr, time: timeStr, type: type || "General" },
+          priority: 140,
+        });
+
+        await insertNotificationInline({
+          userId: doctorId,
+          title: "New Appointment Assigned",
+          message: `You have a ${type || "General"} appointment on ${pretty}.`,
+          notifType: "APPOINTMENT_CREATED",
+          relatedType: "appointments",
+          relatedId: appointmentDbId,
+          meta: { appointmentUid, patientId, doctorId, date: dateStr, time: timeStr, type: type || "General" },
+          priority: 135,
+        });
+
+        await insertNotificationInline({
+          userId: patientId,
+          title: "Appointment Confirmed",
+          message: `Your appointment is scheduled for ${pretty}.`,
+          notifType: "APPOINTMENT_CREATED",
+          relatedType: "appointments",
+          relatedId: appointmentDbId,
+          meta: { appointmentUid, patientId, doctorId, date: dateStr, time: timeStr, type: type || "General" },
+          priority: 130,
+        });
+      } catch (notifyErr) {
+        console.error("Appointment created notification error:", notifyErr);
+      }
+
       return res.status(201).json({
         appointment: {
           id: appointmentUid,
