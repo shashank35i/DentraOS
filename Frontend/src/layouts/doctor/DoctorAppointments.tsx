@@ -111,16 +111,24 @@ export const DoctorAppointments: React.FC = () => {
         throw new Error(body.message || "Failed to load appointments");
       }
 
-      const items: DoctorAppointment[] = (body.items || []).map((x: any) => ({
-        dbId: Number(x.dbId - x.id),
-        id: String(x.id - x.appointment_uid - x.appointmentUid - x.dbId - ""),
-        date: x.date - null,
-        time: x.time - null,
-        patient: x.patient - "--",
-        reason: x.reason - x.type - "General visit",
-        room: x.room - "--",
-        status: mapStatusToUiLabel(x.status),
-      }));
+      const rawItems = Array.isArray(body?.items) ? body.items : [];
+      const items: DoctorAppointment[] = rawItems
+        .map((x: any) => {
+          const dbId = Number(x?.dbId ?? x?.id ?? 0);
+          if (!Number.isFinite(dbId) || dbId <= 0) return null;
+
+          return {
+            dbId,
+            id: String(x?.id ?? x?.appointment_uid ?? x?.appointmentUid ?? dbId),
+            date: x?.date ?? x?.scheduled_date ?? null,
+            time: x?.time ?? x?.time_display ?? null,
+            patient: String(x?.patient ?? x?.patient_name ?? "--"),
+            reason: String(x?.reason ?? x?.type ?? "General visit"),
+            room: String(x?.room ?? "--"),
+            status: mapStatusToUiLabel(x?.status),
+          };
+        })
+        .filter(Boolean) as DoctorAppointment[];
 
       setAppointments(items);
     } catch (err: any) {
