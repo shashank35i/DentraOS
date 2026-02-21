@@ -7736,31 +7736,46 @@ app.post(
   requireRole("Doctor"),
   async (req, res) => {
     const doctorId = req.user.id;
-    const { patientName, toothRegion, diagnosis, stage } = req.body || {};
+    const { patientName, patientUid, toothRegion, diagnosis, stage } = req.body || {};
 
-    if (!patientName || !diagnosis) {
-      return res.status(400).json({ message: "Patient name and diagnosis are required" });
+    if ((!patientName && !patientUid) || !diagnosis) {
+      return res.status(400).json({ message: "Patient and diagnosis are required" });
     }
 
     try {
       const nameTrimmed = String(patientName).trim();
       let patientId = null;
+      let resolvedPatientName = nameTrimmed;
 
-      const [existing] = await pool.query(
-        `SELECT id FROM users WHERE full_name = ? AND role = 'Patient' LIMIT 1`,
-        [nameTrimmed]
-      );
-
-      if (existing.length > 0) {
-        patientId = existing[0].id;
-      } else {
-        const newUid = generateUid("Patient");
-        const [insertPatient] = await pool.query(
-          `INSERT INTO users (uid, full_name, role, created_at)
-           VALUES (?, ?, 'Patient', NOW())`,
-          [newUid, nameTrimmed]
+      if (patientUid) {
+        const [patientByUid] = await pool.query(
+          `SELECT id, full_name FROM users WHERE uid = ? AND role = 'Patient' LIMIT 1`,
+          [String(patientUid).trim()]
         );
-        patientId = insertPatient.insertId;
+        if (!patientByUid.length) {
+          return res.status(400).json({ message: "Selected patient not found" });
+        }
+        patientId = patientByUid[0].id;
+        resolvedPatientName = patientByUid[0].full_name || nameTrimmed || "Patient";
+      }
+
+      if (!patientId) {
+        const [existing] = await pool.query(
+          `SELECT id FROM users WHERE full_name = ? AND role = 'Patient' LIMIT 1`,
+          [nameTrimmed]
+        );
+
+        if (existing.length > 0) {
+          patientId = existing[0].id;
+        } else {
+          const newUid = generateUid("Patient");
+          const [insertPatient] = await pool.query(
+            `INSERT INTO users (uid, full_name, role, created_at)
+             VALUES (?, ?, 'Patient', NOW())`,
+            [newUid, nameTrimmed]
+          );
+          patientId = insertPatient.insertId;
+        }
       }
 
       const stageDb = String(stage || "NEW").toUpperCase();
@@ -7785,7 +7800,7 @@ app.post(
         await insertNotificationInline({
           userRole: "Admin",
           title: "New Case Created",
-          message: `Doctor created case ${caseUid} for ${nameTrimmed}.`,
+          message: `Doctor created case ${caseUid} for ${resolvedPatientName}.`,
           notifType: "CASE_CREATED",
           relatedType: "cases",
           relatedId: newId,
@@ -7831,7 +7846,7 @@ app.post(
           dbId: newId,
           id: row.caseId || caseUid,
           caseId: row.caseId || caseUid,
-          patientName: nameTrimmed,
+          patientName: resolvedPatientName,
           toothRegion: row.toothRegion || toothRegion || "Not specified",
           diagnosis: row.diagnosis || diagnosis,
           stage: mapStageDbToLabel(row.stage || stageDb),

@@ -72,7 +72,8 @@ const stageBadgeClasses = (stage: CaseStage) => {
 
 export const DoctorCases: React.FC = () => {
   const navigate = useNavigate();
-  const doctorName = localStorage.getItem("userName") || "Doctor";
+  const [doctorPatients, setDoctorPatients] = useState<Array<{ uid: string; name: string }>>([]);
+  const [patientSearch, setPatientSearch] = useState("");
 
   const [cases, setCases] = useState<DoctorCase[]>([]);
   const [search, setSearch] = useState("");
@@ -82,6 +83,7 @@ export const DoctorCases: React.FC = () => {
 
   const [isNewCaseOpen, setIsNewCaseOpen] = useState(false);
   const [newCase, setNewCase] = useState({
+    patientUid: "",
     patientName: "",
     toothRegion: "",
     diagnosis: "",
@@ -169,7 +171,9 @@ export const DoctorCases: React.FC = () => {
   }, [cases]);
 
   const handleOpenNewCase = () => {
+    setPatientSearch("");
     setNewCase({
+      patientUid: "",
       patientName: "",
       toothRegion: "",
       diagnosis: "",
@@ -180,7 +184,7 @@ export const DoctorCases: React.FC = () => {
 
   const handleSubmitNewCase = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCase.patientName.trim() || !newCase.diagnosis.trim()) return;
+    if (!newCase.patientUid.trim() || !newCase.diagnosis.trim()) return;
 
     const token = getAuthToken();
     if (!token) {
@@ -199,6 +203,7 @@ export const DoctorCases: React.FC = () => {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
+          patientUid: newCase.patientUid.trim(),
           patientName: newCase.patientName.trim(),
           toothRegion: newCase.toothRegion.trim(),
           diagnosis: newCase.diagnosis.trim(),
@@ -234,6 +239,40 @@ export const DoctorCases: React.FC = () => {
       setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) return;
+    const loadPatients = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/doctor/patients`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const items = Array.isArray(data.items) ? data.items : [];
+        const mapped = items
+          .map((p: any) => ({
+            uid: String(p.id || "").trim(),
+            name: String(p.name || "").trim(),
+          }))
+          .filter((p: any) => p.uid && p.name);
+        setDoctorPatients(mapped);
+      } catch (_) {
+        // keep case creation available even if patient list API fails
+      }
+    };
+    loadPatients();
+  }, []);
+
+  const filteredPatients = doctorPatients.filter((p) => {
+    const q = patientSearch.trim().toLowerCase();
+    if (!q) return true;
+    return p.name.toLowerCase().includes(q) || p.uid.toLowerCase().includes(q);
+  });
 
   return (
     <DoctorLayout>
@@ -417,8 +456,13 @@ export const DoctorCases: React.FC = () => {
                   New case
                 </p>
                 <h2 className="text-sm font-semibold">
-                  Create clinical case for {doctorName}
+                  Create clinical case
                 </h2>
+                {newCase.patientName ? (
+                  <p className="mt-1 text-[11px] text-ink-muted">
+                    Creating case for: <span className="font-medium text-ink">{newCase.patientName}</span>
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -432,18 +476,42 @@ export const DoctorCases: React.FC = () => {
             <form onSubmit={handleSubmitNewCase} className="px-4 py-4 space-y-3 text-xs">
               <div className="space-y-1.5">
                 <label className="block text-[11px] font-semibold text-ink-muted">
-                  Patient name
+                  Patient
                 </label>
                 <input
                   type="text"
-                  value={newCase.patientName}
+                  value={patientSearch}
+                  onChange={(e) => setPatientSearch(e.target.value)}
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  placeholder="Search patient by name"
+                />
+                <select
+                  value={newCase.patientUid}
                   onChange={(e) =>
-                    setNewCase((prev) => ({ ...prev, patientName: e.target.value }))
+                    setNewCase((prev) => {
+                      const selected = doctorPatients.find((p) => p.uid === e.target.value);
+                      return {
+                        ...prev,
+                        patientUid: e.target.value,
+                        patientName: selected?.name || "",
+                      };
+                    })
                   }
                   className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                  placeholder="e.g., Rahul Sharma"
                   required
-                />
+                >
+                  <option value="">Select patient</option>
+                  {filteredPatients.map((p) => (
+                    <option key={p.uid} value={p.uid}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                {!doctorPatients.length ? (
+                  <p className="text-[11px] text-amber-700">
+                    No patients found for this doctor yet. Create or assign a patient first.
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-1.5">
