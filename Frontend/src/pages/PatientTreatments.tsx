@@ -15,6 +15,9 @@ type Treatment = {
   stage: string;
   summary: string;
   details: string | null;
+  summaryStatus?: string | null;
+  confidence?: number | null;
+  reviewedAt?: string | null;
 };
 
 type TreatmentsResponse = {
@@ -187,7 +190,7 @@ export const PatientTreatments: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-emerald-700">
                     <CheckCircle2Icon size={12} />
-                    <span>Reviewed by dentist</span>
+                    <span>{t.summaryStatus === "APPROVED" ? "Reviewed by dentist" : "Awaiting clinician review"}</span>
                     {isOpen ? (
                       <ChevronDownIcon size={16} className="text-ink-muted" />
                     ) : (
@@ -198,7 +201,29 @@ export const PatientTreatments: React.FC = () => {
 
                 {isOpen && (
                   <div className="border-t border-line px-4 py-3 text-xs text-ink-muted">
-                    <p className="mb-2">{t.summary}</p>
+                    <div className="mb-2 rounded-lg border border-line bg-surface px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-ink-muted mb-1">
+                        Clinical summary
+                      </p>
+                      <p className="text-xs text-ink-muted leading-relaxed whitespace-pre-wrap">{t.summary}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      {t.summaryStatus ? (
+                        <span className="inline-flex rounded-full border border-line px-2 py-0.5 text-[10px] text-ink-muted">
+                          Status: {t.summaryStatus}
+                        </span>
+                      ) : null}
+                      {typeof t.confidence === "number" ? (
+                        <span className="inline-flex rounded-full border border-line px-2 py-0.5 text-[10px] text-ink-muted">
+                          Confidence: {t.confidence}%
+                        </span>
+                      ) : null}
+                      {t.reviewedAt ? (
+                        <span className="inline-flex rounded-full border border-line px-2 py-0.5 text-[10px] text-ink-muted">
+                          Reviewed: {t.reviewedAt}
+                        </span>
+                      ) : null}
+                    </div>
                     {t.details && (
                       <pre className="whitespace-pre-wrap font-sans text-[11px] text-ink-muted leading-relaxed bg-surface rounded-lg px-3 py-2 border border-line">
                         {t.details}

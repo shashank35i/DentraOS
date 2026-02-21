@@ -9175,6 +9175,7 @@ app.get(
       const rowsCases = await safeQuery(
         "PATIENT DASHBOARD CASES",
         `SELECT
+           id AS case_db_id,
            case_uid,
            case_type,
            stage,
@@ -9187,14 +9188,39 @@ app.get(
         [patientId]
       );
 
+      const caseIds = rowsCases.map((r) => r.case_db_id).filter(Boolean);
+      let summaryByCase = new Map();
+      if (caseIds.length && (await tableExists("case_summaries"))) {
+        const placeholders = caseIds.map(() => "?").join(",");
+        const srows = await safeQuery(
+          "PATIENT DASHBOARD CASE SUMMARIES",
+          `SELECT case_id, summary, recommendation, confidence, status, approved_at, created_at
+           FROM case_summaries
+           WHERE case_id IN (${placeholders})
+           ORDER BY case_id ASC,
+                    (status='APPROVED') DESC,
+                    COALESCE(approved_at, created_at) DESC,
+                    id DESC`,
+          caseIds
+        );
+        for (const sr of srows) {
+          if (!summaryByCase.has(sr.case_id)) {
+            summaryByCase.set(sr.case_id, sr);
+          }
+        }
+      }
+
       const treatmentSummaries = rowsCases.map((r) => ({
         id: r.case_uid,
         title: r.case_type || "Dental case",
         lastUpdated: r.updated_at || null,
         stage: mapStageDbToLabel(r.stage),
-        snippet:
-          r.agent_summary ||
-          "Summary not yet available. Your dentist may still be preparing this note.",
+        snippet: (() => {
+          const s = summaryByCase.get(r.case_db_id);
+          if (s?.summary) return s.summary;
+          if (r.agent_summary) return r.agent_summary;
+          return "Summary not yet available. Your dentist may still be preparing this note.";
+        })(),
       }));
 
       const rowsInvoices = await safeQuery(
@@ -9319,29 +9345,62 @@ app.get(
 
       const caseIds = rows.map((r) => r.case_db_id).filter(Boolean);
       let summaryMap = new Map();
+      let docsMap = new Map();
       if (caseIds.length) {
         const placeholders = caseIds.map(() => "?").join(",");
-        const srows = await safeQuery(
-          "PATIENT TREATMENTS SUMMARIES",
-          `SELECT case_id, summary, recommendation, created_at
-           FROM case_summaries
-           WHERE case_id IN (${placeholders})
-           ORDER BY case_id, created_at DESC, id DESC`,
-          caseIds
-        );
-        for (const sr of srows) {
-          const cid = sr.case_id;
-          if (!summaryMap.has(cid)) summaryMap.set(cid, []);
-          summaryMap.get(cid).push({
-            summary: sr.summary,
-            recommendation: sr.recommendation,
-            createdAt: sr.created_at,
-          });
+        if (await tableExists("case_summaries")) {
+          const srows = await safeQuery(
+            "PATIENT TREATMENTS SUMMARIES",
+            `SELECT case_id, summary, recommendation, confidence, status, approved_at, created_at
+             FROM case_summaries
+             WHERE case_id IN (${placeholders})
+             ORDER BY case_id ASC,
+                      (status='APPROVED') DESC,
+                      COALESCE(approved_at, created_at) DESC,
+                      id DESC`,
+            caseIds
+          );
+          for (const sr of srows) {
+            const cid = sr.case_id;
+            if (!summaryMap.has(cid)) summaryMap.set(cid, []);
+            summaryMap.get(cid).push({
+              summary: sr.summary,
+              recommendation: sr.recommendation,
+              confidence: sr.confidence,
+              status: sr.status,
+              approvedAt: sr.approved_at,
+              createdAt: sr.created_at,
+            });
+          }
+        }
+        if (await tableExists("case_documents")) {
+          const drows = await safeQuery(
+            "PATIENT TREATMENTS DOCUMENTS",
+            `SELECT case_id, doc_type, content, status, updated_at, created_at
+             FROM case_documents
+             WHERE case_id IN (${placeholders})
+               AND doc_type IN ('patient_explanation','post_op')
+             ORDER BY case_id ASC,
+                      (status='APPROVED') DESC,
+                      (status='READY') DESC,
+                      COALESCE(updated_at, created_at) DESC,
+                      id DESC`,
+            caseIds
+          );
+          for (const dr of drows || []) {
+            const cid = dr.case_id;
+            if (!docsMap.has(cid)) docsMap.set(cid, []);
+            docsMap.get(cid).push(dr);
+          }
         }
       }
 
       const items = rows.map((r) => {
         const aiSummaries = summaryMap.get(r.case_db_id) || [];
+        const docs = docsMap.get(r.case_db_id) || [];
+        const patientDoc = docs.find((d) => String(d.doc_type || "").toLowerCase() === "patient_explanation");
+        const postOpDoc = docs.find((d) => String(d.doc_type || "").toLowerCase() === "post_op");
+        const preferred = aiSummaries[0] || null;
         const fallbackParts = [];
         if (r.case_type) fallbackParts.push(`Case type: ${r.case_type}`);
         if (r.stage) fallbackParts.push(`Stage: ${mapStageDbToLabel(r.stage)}`);
@@ -9353,13 +9412,27 @@ app.get(
         return {
           id: r.case_uid,
           title: r.case_type || "Dental case",
-          lastUpdated: r.updated_at || null,
+          lastUpdated:
+            preferred?.approvedAt ||
+            preferred?.createdAt ||
+            patientDoc?.updated_at ||
+            patientDoc?.created_at ||
+            r.updated_at ||
+            null,
           stage: mapStageDbToLabel(r.stage),
-          summary:
-            r.agent_summary ||
-            aiSummaries[0]?.summary ||
-            fallbackSummary,
-          details: r.agent_recommendation || aiSummaries[0]?.recommendation || null,
+          summary: preferred?.summary || patientDoc?.content || r.agent_summary || fallbackSummary,
+          details: (() => {
+            const blocks = [];
+            if (preferred?.recommendation) blocks.push(`Dentist guidance:\n${preferred.recommendation}`);
+            if (postOpDoc?.content) blocks.push(`Post-op instructions:\n${postOpDoc.content}`);
+            if (patientDoc?.content && !preferred?.summary) blocks.push(`Patient explanation:\n${patientDoc.content}`);
+            if (preferred?.confidence != null) blocks.push(`Confidence: ${preferred.confidence}%`);
+            if (preferred?.status) blocks.push(`Review status: ${preferred.status}`);
+            return blocks.length ? blocks.join("\n\n") : (r.agent_recommendation || null);
+          })(),
+          summaryStatus: preferred?.status || null,
+          confidence: preferred?.confidence ?? null,
+          reviewedAt: preferred?.approvedAt || null,
           aiSummaries,
         };
       });
