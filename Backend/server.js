@@ -6956,6 +6956,119 @@ app.get(
   }
 );
 
+app.get(
+  `${DOCTOR_BASE}/insights-summary`,
+  authMiddleware,
+  requireRole("Doctor"),
+  async (req, res) => {
+    try {
+      const doctorId = Number(req.user?.id || 0);
+      if (!Number.isFinite(doctorId) || doctorId <= 0) {
+        return res.status(400).json({ message: "Invalid doctor context" });
+      }
+
+      const [apptRows] = await pool.query(
+        `
+        SELECT status, scheduled_date
+        FROM appointments
+        WHERE doctor_id = ?
+          AND scheduled_date >= DATE_SUB(CURDATE(), INTERVAL 28 DAY)
+        `,
+        [doctorId]
+      );
+
+      let totalAppts = 0;
+      let completedAppts = 0;
+      let cancelledAppts = 0;
+      let noShowAppts = 0;
+      for (const row of apptRows || []) {
+        totalAppts += 1;
+        const status = String(row.status || "").trim().toLowerCase();
+        if (status === "completed") completedAppts += 1;
+        if (status === "cancelled") cancelledAppts += 1;
+        if (status === "no-show" || status === "no show") noShowAppts += 1;
+      }
+
+      const chairUtilization = totalAppts > 0 ? Math.round((completedAppts / totalAppts) * 100) : 0;
+      const cancellationRate =
+        totalAppts > 0 ? Math.round(((cancelledAppts + noShowAppts) / totalAppts) * 100) : 0;
+
+      const [caseRows] = await pool.query(
+        `
+        SELECT id, stage, next_review_date
+        FROM cases
+        WHERE doctor_id = ?
+          AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+        `,
+        [doctorId]
+      );
+
+      const totalCases = (caseRows || []).length;
+      const inTreatment = (caseRows || []).filter((c) => String(c.stage || "") === "IN_TREATMENT").length;
+      const waitingCases = (caseRows || []).filter((c) => String(c.stage || "") === "WAITING_ON_PATIENT").length;
+      const followUpsSet = new Set(
+        (caseRows || [])
+          .filter((c) => c.next_review_date)
+          .map((c) => Number(c.id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      );
+      const followUpRate = totalCases > 0 ? Math.round((followUpsSet.size / totalCases) * 100) : 0;
+
+      const [timelineRows] = await pool.query(
+        `
+        SELECT COUNT(*) AS total
+        FROM case_timeline ct
+        JOIN cases c ON c.id = ct.case_id
+        WHERE c.doctor_id = ?
+          AND ct.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+        `,
+        [doctorId]
+      );
+      const caseVelocity = Number(timelineRows?.[0]?.total || 0);
+
+      const hasData = totalAppts > 0 || totalCases > 0 || caseVelocity > 0;
+      const positiveSignals = [];
+      const watchList = [];
+
+      if (!hasData) {
+        positiveSignals.push("No activity yet for this doctor. Create appointments/cases to unlock insights.");
+      } else {
+        if (chairUtilization >= 70) positiveSignals.push("Chair utilization is healthy this month.");
+        if (followUpRate >= 60) positiveSignals.push("Follow-up planning is on track for active cases.");
+        if (inTreatment > 0) positiveSignals.push(`${inTreatment} active treatment case(s) are progressing.`);
+
+        if (cancellationRate >= 20) watchList.push("Cancellation/no-show rate is high. Consider reminder workflow tuning.");
+        if (waitingCases > 0) watchList.push(`${waitingCases} case(s) are waiting on patient follow-up.`);
+        if (followUpRate < 40 && totalCases > 0) watchList.push("Review next follow-up dates for active cases.");
+      }
+
+      return res.json({
+        hasData,
+        metrics: {
+          chairUtilization,
+          followUpRate,
+          cancellationRate,
+          caseVelocity,
+        },
+        raw: {
+          totalAppointments: totalAppts,
+          completedAppointments: completedAppts,
+          cancelledAppointments: cancelledAppts,
+          noShowAppointments: noShowAppts,
+          totalCases,
+          inTreatmentCases: inTreatment,
+          waitingCases,
+        },
+        positiveSignals,
+        watchList,
+      });
+    } catch (err) {
+      console.error("DOCTOR INSIGHTS SUMMARY ERROR:", err);
+      return res.status(500).json({ message: "Failed to load insights" });
+    }
+  }
+);
+
 // ✅ NEW: DOCTOR mark appointment completed
 
 app.get(
