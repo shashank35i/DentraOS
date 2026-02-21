@@ -466,15 +466,35 @@ def _consume_items_from_visit(conn, visit_id: int) -> List[Dict[str, Any]]:
         if not _table_exists(cur, "visit_consumables"):
             return []
 
+        item_col = None
+        for c in ("item_code", "inventory_item_code", "inventory_item_id", "item_id"):
+            if _column_exists(cur, "visit_consumables", c):
+                item_col = c
+                break
+        if not item_col:
+            return []
+
         qty_col = "qty_used" if _column_exists(cur, "visit_consumables", "qty_used") else (
             "qty" if _column_exists(cur, "visit_consumables", "qty") else (
                 "quantity" if _column_exists(cur, "visit_consumables", "quantity") else "qty_used"
             )
         )
-        cur.execute(
-            f"SELECT item_code, {qty_col} AS qty_used FROM visit_consumables WHERE visit_id=%s",
-            (visit_id,),
-        )
+        item_is_id = item_col in ("inventory_item_id", "item_id")
+        if item_is_id and _table_exists(cur, "inventory_items") and _column_exists(cur, "inventory_items", "item_code"):
+            cur.execute(
+                f"""
+                SELECT ii.item_code AS item_code, vc.{qty_col} AS qty_used
+                FROM visit_consumables vc
+                JOIN inventory_items ii ON ii.id = vc.{item_col}
+                WHERE vc.visit_id=%s
+                """,
+                (visit_id,),
+            )
+        else:
+            cur.execute(
+                f"SELECT {item_col} AS item_code, {qty_col} AS qty_used FROM visit_consumables WHERE visit_id=%s",
+                (visit_id,),
+            )
         rows = _rows_to_dicts(cur, cur.fetchall() or [])
         out: List[Dict[str, Any]] = []
         for r in rows:
@@ -524,24 +544,39 @@ def _consume_items_from_procedures_if_needed(conn, visit_id: int) -> List[Dict[s
         if not vp_proc_col or not pc_proc_col:
             return []
 
+        pc_item_col = None
+        for c in ("item_code", "inventory_item_code", "inventory_item_id", "item_id"):
+            if _column_exists(cur, "procedure_consumables", c):
+                pc_item_col = c
+                break
+        if not pc_item_col:
+            return []
+
         qty_col = "qty_used" if _column_exists(cur, "procedure_consumables", "qty_used") else (
             "qty" if _column_exists(cur, "procedure_consumables", "qty") else None
         )
         if not qty_col:
             return []
 
+        item_expr = f"pc.{pc_item_col}"
+        item_join = ""
+        if pc_item_col in ("inventory_item_id", "item_id") and _table_exists(cur, "inventory_items") and _column_exists(cur, "inventory_items", "item_code"):
+            item_expr = "ii.item_code"
+            item_join = f" LEFT JOIN inventory_items ii ON ii.id = pc.{pc_item_col}"
+
         cur.execute(
             f"""
             SELECT
               vp.{vp_proc_col} AS procedure_code,
               vp.id AS procedure_id,
-              pc.item_code AS item_code,
+              {item_expr} AS item_code,
               SUM(pc.{qty_col}) AS qty
             FROM visit_procedures vp
             JOIN procedure_consumables pc
               ON pc.{pc_proc_col} = vp.{vp_proc_col}
+            {item_join}
             WHERE vp.visit_id=%s
-            GROUP BY vp.{vp_proc_col}, vp.id, pc.item_code
+            GROUP BY vp.{vp_proc_col}, vp.id, {item_expr}
             """,
             (visit_id,),
         )
