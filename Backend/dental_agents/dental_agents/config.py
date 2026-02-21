@@ -5,8 +5,12 @@ from pathlib import Path
 
 _here = Path(__file__).resolve()
 # Prefer repo-root .env (shared by backend/frontend), then allow Backend/.env overrides if present.
-load_dotenv(dotenv_path=_here.parents[3] / ".env")
-load_dotenv(dotenv_path=_here.parents[2] / ".env")
+# In Railway worker root deployments, parents depth can be shorter; guard path access.
+for idx in (3, 2, 1):
+    if len(_here.parents) > idx:
+        env_path = _here.parents[idx] / ".env"
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path)
 
 TIME_ZONE = os.getenv("TIME_ZONE", "+05:30")
 
