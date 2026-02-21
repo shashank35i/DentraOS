@@ -8,6 +8,7 @@ import {
   XIcon,
   Loader2Icon,
 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const ADMIN_API = `${API_BASE}/api/admin`;
@@ -36,6 +37,7 @@ function displayDate(val: any) {
 }
 
 type AppointmentRow = {
+  dbId?: number;
   id: string;
   date: string;
   time: string;
@@ -68,6 +70,7 @@ type SuggestedSlot = {
 };
 
 export const AdminAppointments: React.FC = () => {
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [search, setSearch] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -115,7 +118,19 @@ export const AdminAppointments: React.FC = () => {
         if (!res.ok) throw new Error(`Status ${res.status}`);
 
         const data = await res.json();
-        setAppointments(data.items || []);
+        const rows: AppointmentRow[] = Array.isArray(data.items)
+          ? data.items.map((r: any) => ({
+              dbId: r?.dbId != null ? Number(r.dbId) : undefined,
+              id: String(r?.id ?? r?.appointment_uid ?? r?.dbId ?? ""),
+              date: r?.date ?? r?.scheduled_date ?? "",
+              time: r?.time ?? r?.time_display ?? "",
+              patient: String(r?.patient ?? r?.patient_name ?? "--"),
+              doctor: String(r?.doctor ?? r?.doctor_name ?? "--"),
+              type: String(r?.type ?? "General"),
+              status: String(r?.status ?? "Unknown"),
+            }))
+          : [];
+        setAppointments(rows);
       } catch (err) {
         console.error("AdminAppointments error:", err);
         setError("Failed to load appointments.");
@@ -456,9 +471,28 @@ export const AdminAppointments: React.FC = () => {
                 filtered.map((apt) => (
                   <tr
                     key={apt.id}
-                    className="border-b border-line last:border-b-0 hover:bg-surface-muted transition"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("button, a")) return;
+                      navigate(`/admin/appointments/${encodeURIComponent(String(apt.dbId ?? apt.id))}`);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        navigate(`/admin/appointments/${encodeURIComponent(String(apt.dbId ?? apt.id))}`);
+                      }
+                    }}
+                    className="border-b border-line last:border-b-0 hover:bg-surface-muted transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                   >
-                    <td className="py-2 pr-4 text-ink">{apt.id}</td>
+                    <td className="py-2 pr-4 text-ink">
+                      <Link
+                        to={`/admin/appointments/${encodeURIComponent(String(apt.dbId ?? apt.id))}`}
+                        className="text-brand hover:underline"
+                      >
+                        {apt.id}
+                      </Link>
+                    </td>
                     <td className="py-2 pr-4 text-ink">{displayDate(apt.date)}</td>
                     <td className="py-2 pr-4 text-ink">{apt.time}</td>
                     <td className="py-2 pr-4 text-ink">{apt.patient}</td>

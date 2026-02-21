@@ -50,6 +50,11 @@ import { AdminInventory } from "./layouts/admin/AdminInventory";
 import { AdminRevenue } from "./layouts/admin/AdminRevenue";
 import { AdminHelp } from "./layouts/admin/AdminHelp";
 import { AdminCaseTracking } from "./layouts/admin/AdminCaseTracking";
+import { AdminAppointmentDetails } from "./layouts/admin/AdminAppointmentDetails";
+import { DoctorAppointmentDetails } from "./layouts/doctor/DoctorAppointmentDetails";
+import { AdminInvoiceDetails } from "./layouts/admin/AdminInvoiceDetails";
+import { AdminPurchaseOrders } from "./layouts/admin/AdminPurchaseOrders";
+import { AdminInventoryItemDetails } from "./layouts/admin/AdminInventoryItemDetails";
 
 import { PatientHelp } from "./layouts/patient/PatientHelp";
 import { PatientLayout } from "./layouts/patient/PatientLayout";
@@ -68,7 +73,7 @@ const PlaceholderPage = ({ title }: { title: string }) => (
 
 export function AppRouter() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         {/* ---------- Public ---------- */}
         <Route path="/" element={<Landing />} />
@@ -106,6 +111,16 @@ export function AppRouter() {
             <ProtectedRoute>
               <AdminLayout>
                 <AdminAppointments />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/appointments/:id"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <AdminAppointmentDetails />
               </AdminLayout>
             </ProtectedRoute>
           }
@@ -161,11 +176,41 @@ export function AppRouter() {
           }
         />
         <Route
+          path="/admin/inventory/:itemCode"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <AdminInventoryItemDetails />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/purchase-orders"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <AdminPurchaseOrders />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/revenue"
           element={
             <ProtectedRoute>
               <AdminLayout>
                 <AdminRevenue />
+              </AdminLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/invoices/:invoiceId"
+          element={
+            <ProtectedRoute>
+              <AdminLayout>
+                <AdminInvoiceDetails />
               </AdminLayout>
             </ProtectedRoute>
           }
@@ -215,6 +260,14 @@ export function AppRouter() {
           element={
             <ProtectedRoute>
               <DoctorAppointments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor/appointments/:id"
+          element={
+            <ProtectedRoute>
+              <DoctorAppointmentDetails />
             </ProtectedRoute>
           }
         />

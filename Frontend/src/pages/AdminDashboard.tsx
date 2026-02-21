@@ -46,8 +46,37 @@ type DashboardSummary = {
   asOf: string;
 };
 
+type FeatureBucket = {
+  total: number;
+  done: number;
+  failed: number;
+  processing: number;
+  latest?: {
+    eventId: number;
+    eventType: string;
+    status: string;
+    updatedAt: string;
+  } | null;
+};
+
+type FeatureStatusPayload = {
+  buckets: {
+    appointment: FeatureBucket;
+    inventory: FeatureBucket;
+    revenue: FeatureBucket;
+    case_tracking: FeatureBucket;
+  };
+  notificationSummary: {
+    total: number;
+    sent: number;
+    pending: number;
+    failed: number;
+  };
+};
+
 export const AdminDashboard: React.FC = () => {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [featureStatus, setFeatureStatus] = useState<FeatureStatusPayload | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,22 +91,30 @@ export const AdminDashboard: React.FC = () => {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`${ADMIN_API}/dashboard-summary`, {
-          headers: getAuthHeaders(),
-          signal: ac.signal,
-        });
+        const [resSummary, resFeatures] = await Promise.all([
+          fetch(`${ADMIN_API}/dashboard-summary`, {
+            headers: getAuthHeaders(),
+            signal: ac.signal,
+          }),
+          fetch(`${ADMIN_API}/agents/feature-status`, {
+            headers: getAuthHeaders(),
+            signal: ac.signal,
+          }),
+        ]);
 
-        const data = await readJsonOrText(res);
+        const data = await readJsonOrText(resSummary);
+        const dataFeatures = await readJsonOrText(resFeatures);
 
-        if (!res.ok) {
+        if (!resSummary.ok) {
           const msg =
             data.error ||
             data.message ||
-            `Failed to load dashboard summary (HTTP ${res.status})`;
+            `Failed to load dashboard summary (HTTP ${resSummary.status})`;
           throw new Error(msg);
         }
 
         setSummary(data);
+        if (resFeatures.ok) setFeatureStatus(dataFeatures as FeatureStatusPayload);
       } catch (err: any) {
         if (err.name === "AbortError") return;
         console.error("Dashboard summary error:", err);
@@ -121,6 +158,38 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {featureStatus && (
+        <section className="surface rounded-2xl p-5 reveal">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-ink">Agent Execution</h2>
+            <span className="text-[11px] text-ink-muted">
+              Notifications: {featureStatus.notificationSummary.pending} pending / {featureStatus.notificationSummary.sent} sent
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
+            {Object.entries(featureStatus.buckets).map(([key, bucket]) => (
+              <div key={key} className="surface-muted rounded-xl border border-line p-3">
+                <div className="flex items-center justify-between">
+                  <span className="uppercase tracking-wide text-ink-muted">{key.replace("_", " ")}</span>
+                  <span className="font-semibold text-ink">#{bucket.latest?.eventId ?? "--"}</span>
+                </div>
+                <div className="mt-2 space-y-1">
+                  <div className="flex justify-between"><span>Total</span><span className="font-medium">{bucket.total}</span></div>
+                  <div className="flex justify-between"><span className="text-[color:var(--success)]">Done</span><span className="font-medium">{bucket.done}</span></div>
+                  <div className="flex justify-between"><span className="text-[color:var(--warn)]">In queue</span><span className="font-medium">{bucket.processing}</span></div>
+                  <div className="flex justify-between"><span className="text-[color:var(--danger)]">Failed</span><span className="font-medium">{bucket.failed}</span></div>
+                </div>
+                {bucket.latest && (
+                  <p className="mt-2 text-[11px] text-ink-muted">
+                    {bucket.latest.eventType} • {bucket.latest.status}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="kpi-card reveal">

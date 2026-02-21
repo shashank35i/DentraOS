@@ -6,7 +6,7 @@ import {
   CheckCircle2Icon,
   RefreshCwIcon,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { DoctorLayout } from "../../layouts/doctor/DoctorLayout";
 
 type DoctorAppointment = {
@@ -71,6 +71,7 @@ function statusPillClass(raw: any) {
 }
 
 export const DoctorAppointments: React.FC = () => {
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState<DoctorAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -289,7 +290,19 @@ export const DoctorAppointments: React.FC = () => {
                   return (
                     <tr
                       key={a.dbId}
-                      className="border-b border-line last:border-b-0 hover:bg-surface-muted transition"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.closest("button, a")) return;
+                        navigate(`/doctor/appointments/${encodeURIComponent(String(a.dbId))}`);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          navigate(`/doctor/appointments/${encodeURIComponent(String(a.dbId))}`);
+                        }
+                      }}
+                      className="border-b border-line last:border-b-0 hover:bg-surface-muted transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                     >
                       <td className="py-2 pr-4 align-top">
                         <div className="inline-flex rounded-full border border-line px-2 py-0.5 font-mono text-[11px] text-ink">
@@ -337,7 +350,12 @@ export const DoctorAppointments: React.FC = () => {
                       </td>
 
                       <td className="py-2 pr-2 align-top text-right text-ink-muted font-mono">
-                        {a.id}
+                        <Link
+                          to={`/doctor/appointments/${encodeURIComponent(String(a.dbId))}`}
+                          className="text-brand hover:underline"
+                        >
+                          {a.id}
+                        </Link>
                       </td>
                     </tr>
                   );

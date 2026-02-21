@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ClipboardListIcon,
   FilterIcon,
@@ -14,6 +15,7 @@ import { DoctorLayout } from "./DoctorLayout";
 type CaseStage = "New" | "In treatment" | "Waiting on patient" | "Completed";
 
 export type DoctorCase = {
+  dbId: number;
   id: string;
   patientName: string;
   toothRegion: string;
@@ -69,6 +71,7 @@ const stageBadgeClasses = (stage: CaseStage) => {
 };
 
 export const DoctorCases: React.FC = () => {
+  const navigate = useNavigate();
   const doctorName = localStorage.getItem("userName") || "Doctor";
 
   const [cases, setCases] = useState<DoctorCase[]>([]);
@@ -115,6 +118,7 @@ export const DoctorCases: React.FC = () => {
         const items = (data.cases || []) as any[];
 
         const mapped: DoctorCase[] = items.map((c) => ({
+          dbId: Number(c.dbId || c.id || 0),
           id: c.id || c.caseId || "--",
           patientName: c.patientName || "Unknown patient",
           toothRegion: c.toothRegion || "Not specified",
@@ -211,6 +215,7 @@ export const DoctorCases: React.FC = () => {
       const c = data.case;
 
       const created: DoctorCase = {
+        dbId: Number(c.dbId || c.id || 0),
         id: c.id || c.caseId || "--",
         patientName: c.patientName || newCase.patientName.trim(),
         toothRegion: c.toothRegion || newCase.toothRegion.trim() || "Not specified",
@@ -358,7 +363,16 @@ export const DoctorCases: React.FC = () => {
               {filteredCases.map((c) => (
                 <div
                   key={c.id}
-                  className="rounded-2xl border border-line bg-surface p-4 shadow-soft"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => c.dbId > 0 && navigate(`/doctor/cases/${c.dbId}`)}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && c.dbId > 0) {
+                      e.preventDefault();
+                      navigate(`/doctor/cases/${c.dbId}`);
+                    }
+                  }}
+                  className="rounded-2xl border border-line bg-surface p-4 shadow-soft cursor-pointer hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <p className="text-[11px] font-mono text-ink-muted">

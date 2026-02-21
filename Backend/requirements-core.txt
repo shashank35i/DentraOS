@@ -1,0 +1,2 @@
+﻿# Worker + shared Python deps (compatible with existing worker runtime)
+-r dental_agents/requirements.txt

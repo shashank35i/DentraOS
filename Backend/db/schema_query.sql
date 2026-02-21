@@ -122,6 +122,10 @@ CREATE TABLE IF NOT EXISTS inventory_usage_logs (
   item_code VARCHAR(64) NULL,
   qty_used INT NOT NULL DEFAULT 0,
   source ENUM('AUTO','MANUAL','ADJUSTMENT') NOT NULL DEFAULT 'AUTO',
+  source_type VARCHAR(64) NULL,
+  source_ref_id BIGINT UNSIGNED NULL,
+  event_id BIGINT UNSIGNED NULL,
+  dedupe_key VARCHAR(190) NULL,
   doctor_id BIGINT UNSIGNED NULL,
   meta_json LONGTEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -130,8 +134,11 @@ CREATE TABLE IF NOT EXISTS inventory_usage_logs (
   KEY idx_usage_visit (visit_id),
   KEY idx_usage_item_id (item_id),
   KEY idx_usage_item_code (item_code),
+  KEY idx_usage_event (event_id),
+  KEY idx_usage_source_ref (source_ref_id),
   KEY idx_usage_doctor (doctor_id),
   KEY idx_usage_created_at (created_at),
+  UNIQUE KEY uq_usage_dedupe (dedupe_key),
   CONSTRAINT fk_usage_item
     FOREIGN KEY (item_id) REFERENCES inventory_items(id)
     ON DELETE SET NULL,
@@ -243,6 +250,42 @@ CREATE TABLE IF NOT EXISTS case_summaries (
     ON DELETE CASCADE,
   CONSTRAINT fk_case_summaries_approver
     FOREIGN KEY (approved_by_user_id) REFERENCES users(id)
+    ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS case_documents (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  case_id BIGINT UNSIGNED NOT NULL,
+  doc_type ENUM('clinical_summary','patient_explanation','consent','post_op') NOT NULL,
+  content LONGTEXT NULL,
+  status ENUM('DRAFT','READY','APPROVED','REJECTED') NOT NULL DEFAULT 'DRAFT',
+  created_by_agent_event_id BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_case_doc (case_id, doc_type),
+  KEY idx_case_doc_created (created_at),
+  CONSTRAINT fk_case_documents_case
+    FOREIGN KEY (case_id) REFERENCES cases(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actor_user_id BIGINT UNSIGNED NULL,
+  actor_role VARCHAR(32) NULL,
+  entity_type VARCHAR(64) NOT NULL,
+  entity_id BIGINT UNSIGNED NOT NULL,
+  action VARCHAR(64) NOT NULL,
+  before_json LONGTEXT NULL,
+  after_json LONGTEXT NULL,
+  meta_json LONGTEXT NULL,
+  PRIMARY KEY (id),
+  KEY idx_audit_entity (entity_type, entity_id, created_at),
+  KEY idx_audit_actor (actor_user_id, created_at),
+  CONSTRAINT fk_case_audit_actor
+    FOREIGN KEY (actor_user_id) REFERENCES users(id)
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -463,6 +506,49 @@ CREATE TABLE IF NOT EXISTS appointment_reschedule_suggestions (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS appointment_recommendations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  appointment_id BIGINT UNSIGNED NULL,
+  doctor_id BIGINT UNSIGNED NULL,
+  recommended_start DATETIME NOT NULL,
+  recommended_end DATETIME NULL,
+  reason VARCHAR(255) NULL,
+  confidence INT NOT NULL DEFAULT 50,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_appt_rec_doctor (doctor_id, created_at),
+  KEY idx_appt_rec_appt (appointment_id),
+  CONSTRAINT fk_appt_reco_appt
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_appt_reco_doctor
+    FOREIGN KEY (doctor_id) REFERENCES users(id)
+    ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS reminder_jobs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  appointment_id BIGINT UNSIGNED NULL,
+  user_id BIGINT UNSIGNED NULL,
+  channel ENUM('IN_APP','EMAIL','SMS','WHATSAPP','CALL') NOT NULL DEFAULT 'IN_APP',
+  status ENUM('QUEUED','SENT','FAILED','CANCELLED') NOT NULL DEFAULT 'QUEUED',
+  scheduled_at DATETIME NOT NULL,
+  sent_at DATETIME NULL,
+  meta_json LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_reminder_appt (appointment_id, scheduled_at),
+  KEY idx_reminder_user (user_id, status),
+  KEY idx_reminder_status (status, scheduled_at),
+  CONSTRAINT fk_reminder_appt
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_reminder_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS revenue_insights (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   as_of_date DATE NOT NULL,
@@ -476,6 +562,44 @@ CREATE TABLE IF NOT EXISTS revenue_insights (
   PRIMARY KEY (id),
   UNIQUE KEY uq_rev_as_of_type (as_of_date, insight_type, range_label),
   KEY idx_rev_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory_anomalies (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  item_code VARCHAR(64) NOT NULL,
+  doctor_id BIGINT UNSIGNED NULL,
+  procedure_code VARCHAR(64) NULL,
+  anomaly_type VARCHAR(64) NOT NULL,
+  severity ENUM('LOW','MEDIUM','HIGH','CRITICAL') NOT NULL DEFAULT 'LOW',
+  score DECIMAL(6,2) NOT NULL DEFAULT 0,
+  meta_json LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_inventory_anomaly_item (item_code, created_at),
+  KEY idx_inventory_anomaly_doctor (doctor_id, created_at),
+  CONSTRAINT fk_inventory_anomaly_doctor
+    FOREIGN KEY (doctor_id) REFERENCES users(id)
+    ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS revenue_anomalies (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  invoice_id BIGINT UNSIGNED NULL,
+  appointment_id BIGINT UNSIGNED NULL,
+  anomaly_type VARCHAR(64) NOT NULL,
+  severity ENUM('LOW','MEDIUM','HIGH','CRITICAL') NOT NULL DEFAULT 'LOW',
+  estimated_loss DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  meta_json LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_revenue_anomaly_invoice (invoice_id, created_at),
+  KEY idx_revenue_anomaly_appt (appointment_id, created_at),
+  CONSTRAINT fk_revenue_anomaly_invoice
+    FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+    ON DELETE SET NULL,
+  CONSTRAINT fk_revenue_anomaly_appt
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+    ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS payment_transactions (

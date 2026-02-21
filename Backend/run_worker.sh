@@ -1,0 +1,11 @@
+﻿#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ -n "${PYTHONPATH:-}" ]; then
+  export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+else
+  export PYTHONPATH="$SCRIPT_DIR"
+fi
+
+python -m dental_agents.main_worker

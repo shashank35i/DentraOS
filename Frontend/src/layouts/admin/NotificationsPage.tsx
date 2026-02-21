@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { BellIcon, CheckIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -20,7 +21,19 @@ type Notif = {
   created_at: string | null;
   scheduled_at: string | null;
   read_at: string | null;
+  related_entity_type?: string | null;
+  related_entity_id?: number | null;
 };
+
+function notificationHref(n: Notif) {
+  const t = String(n.related_entity_type || "").toLowerCase();
+  const id = n.related_entity_id;
+  if ((t === "appointments" || String(n.type || "").includes("APPOINT")) && id) return `/admin/appointments/${id}`;
+  if ((t === "cases" || String(n.type || "").includes("CASE")) && id) return `/admin/cases`;
+  if ((t === "purchase_orders" || String(n.type || "").includes("INVENTORY_LOW")) && id) return `/admin/purchase-orders`;
+  if ((t === "invoices" || String(n.type || "").includes("REVENUE")) && id) return `/admin/invoices/${id}`;
+  return "/admin/alerts";
+}
 
 export const AdminNotificationsPage: React.FC = () => {
   const [items, setItems] = useState<Notif[]>([]);
@@ -131,6 +144,11 @@ export const AdminNotificationsPage: React.FC = () => {
                       {n.title || n.type || "Notification"}
                     </div>
                     <div className="mt-1 text-sm text-ink">{n.message}</div>
+                    <div className="mt-2">
+                      <Link to={notificationHref(n)} className="text-xs text-brand hover:underline">
+                        Open related item
+                      </Link>
+                    </div>
                     <div className="mt-2 text-[11px] text-ink-muted">
                       {n.created_at || ""}
                       {n.scheduled_at ? (
@@ -143,6 +161,8 @@ export const AdminNotificationsPage: React.FC = () => {
                       <span className="font-mono">
                         {String(n.status || "").toUpperCase()}
                       </span>
+                      <span className="mx-2">-</span>
+                      <span className="font-mono">event #{n.id}</span>
                     </div>
                   </div>
 

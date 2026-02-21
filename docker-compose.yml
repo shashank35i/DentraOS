@@ -1,0 +1,25 @@
+﻿services:
+  mysql:
+    image: mysql:8.0
+    container_name: dentraos-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: dental_clinic
+      MYSQL_USER: dentra
+      MYSQL_PASSWORD: dentra_pass
+      MYSQL_ROOT_PASSWORD: root_pass
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    volumes:
+      - dentraos_mysql_data:/var/lib/mysql
+      - ./Backend/db/schema_query.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./Backend/sql/_all_migrations.sql:/docker-entrypoint-initdb.d/02-migrations.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dentraos_mysql_data:

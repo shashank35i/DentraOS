@@ -2,13 +2,17 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIcon,
   AlertTriangleIcon,
+  AlertCircleIcon,
+  CheckCircle2Icon,
   ClipboardListIcon,
   ClockIcon,
   FilterIcon,
+  Loader2Icon,
   SearchIcon,
   UserIcon,
   ZapIcon,
 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const ADMIN_API = `${API_BASE}/api/admin`;
@@ -50,6 +54,14 @@ interface TrackedCase {
   flagged: boolean;
 }
 
+interface CaseAgentStatusLite {
+  eventId: number | null;
+  eventType: string;
+  status: string;
+  updatedAt: string;
+  lastError: string | null;
+}
+
 const stageLabel: Record<CaseStage, string> = {
   NEW: "New",
   IN_TREATMENT: "In treatment",
@@ -66,11 +78,14 @@ const priorityLabel: Record<CasePriority, string> = {
 };
 
 export const AdminCaseTracking: React.FC = () => {
+  const navigate = useNavigate();
   const [summary, setSummary] = useState<CaseTrackingSummary | null>(null);
   const [cases, setCases] = useState<TrackedCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingCaseId, setUpdatingCaseId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [latestAgentStatus, setLatestAgentStatus] = useState<CaseAgentStatusLite | null>(null);
+  const [lastCheckedAt, setLastCheckedAt] = useState<string>("");
 
   const [search, setSearch] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -85,6 +100,10 @@ export const AdminCaseTracking: React.FC = () => {
     byStage: {},
     updatedAt: null,
   };
+  const firstCaseId = Number(cases[0]?.id || 0);
+  const isAgentBusy = ["NEW", "QUEUED", "PROCESSING"].includes(
+    String(latestAgentStatus?.status || "").toUpperCase()
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -149,6 +168,54 @@ export const AdminCaseTracking: React.FC = () => {
 
     fetchData();
   }, [token]);
+
+  const fetchLatestAgentStatus = async () => {
+    if (!token || !firstCaseId) {
+      setLatestAgentStatus(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/cases/${firstCaseId}/agent-status`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        setLatestAgentStatus(null);
+        return;
+      }
+      const data = await res.json();
+      const latest = data?.latest;
+      if (!latest) {
+        setLatestAgentStatus(null);
+        setLastCheckedAt(new Date().toISOString().slice(0, 19).replace("T", " "));
+        return;
+      }
+      setLatestAgentStatus({
+        eventId: Number(latest.eventId || 0) || null,
+        eventType: String(latest.eventType || ""),
+        status: String(latest.status || ""),
+        updatedAt: String(latest.updatedAt || "").slice(0, 19).replace("T", " "),
+        lastError: latest.lastError ? String(latest.lastError) : null,
+      });
+      setLastCheckedAt(new Date().toISOString().slice(0, 19).replace("T", " "));
+    } catch {
+      setLatestAgentStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchLatestAgentStatus();
+  }, [token, firstCaseId]);
+
+  useEffect(() => {
+    if (!isAgentBusy || !firstCaseId) return;
+    const timer = setInterval(() => {
+      fetchLatestAgentStatus();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [isAgentBusy, firstCaseId, token]);
 
   const filteredCases = useMemo(() => {
     return cases.filter((c) => {
@@ -261,6 +328,42 @@ export const AdminCaseTracking: React.FC = () => {
     }
   };
 
+  const renderLatestAgentStatus = () => {
+    if (!latestAgentStatus) return <span>No recent case-agent event.</span>;
+    const status = String(latestAgentStatus.status || "").toUpperCase();
+    const shortErr = latestAgentStatus.lastError
+      ? String(latestAgentStatus.lastError).slice(0, 140)
+      : "";
+    if (status === "DONE") {
+      return (
+        <span className="inline-flex items-center gap-2">
+          <CheckCircle2Icon size={14} className="text-emerald-600" />
+          <span className="font-semibold text-ink">Summary generation: DONE</span>
+          {latestAgentStatus.eventId ? <span>- event #{latestAgentStatus.eventId}</span> : null}
+          <span>({latestAgentStatus.updatedAt || "--"})</span>
+        </span>
+      );
+    }
+    if (status === "FAILED") {
+      return (
+        <span className="inline-flex items-center gap-2">
+          <AlertCircleIcon size={14} className="text-rose-600" />
+          <span className="font-semibold text-rose-700">Summary generation: FAILED</span>
+          {latestAgentStatus.eventId ? <span>- event #{latestAgentStatus.eventId}</span> : null}
+          {shortErr ? <span>- {shortErr}</span> : null}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-2">
+        <Loader2Icon size={14} className="animate-spin text-brand" />
+        <span className="font-semibold text-ink">AI is generating summary...</span>
+        {latestAgentStatus.eventId ? <span>- event #{latestAgentStatus.eventId}</span> : null}
+        <span>({latestAgentStatus.updatedAt || "--"})</span>
+      </span>
+    );
+  };
+
   return (
     <>
       <section className="surface rounded-2xl px-6 py-5 mb-6">
@@ -347,8 +450,8 @@ export const AdminCaseTracking: React.FC = () => {
               AI summaries of your riskiest cases.
             </p>
             <p className="mt-1 text-xs text-ink-muted">
-              Once wired to your LLM endpoint, this panel will pull a daily summary
-              of blocked or high-risk cases and propose next actions for the team.
+              This panel highlights blocked or high-risk cases and suggests the
+              next best actions for your team.
             </p>
             {safeSummary.updatedAt && (
               <p className="mt-3 text-[11px] text-ink-muted">
@@ -416,6 +519,12 @@ export const AdminCaseTracking: React.FC = () => {
             {error}
           </div>
         )}
+        <div className="mb-3 rounded-2xl border border-line bg-surface px-3 py-2 text-xs text-ink-muted">
+          <div>{renderLatestAgentStatus()}</div>
+          <div className="mt-1 text-[11px] text-ink-muted">
+            Last checked: {lastCheckedAt || "--"}
+          </div>
+        </div>
 
         {loading ? (
           <div className="rounded-2xl border border-line bg-surface-muted p-6 text-sm text-ink-muted">
@@ -444,10 +553,24 @@ export const AdminCaseTracking: React.FC = () => {
                 {filteredCases.map((c) => (
                   <tr
                     key={c.id}
-                    className="border-b border-line last:border-b-0 hover:bg-surface-muted align-top"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("button, a, select")) return;
+                      navigate(`/admin/cases?case=${encodeURIComponent(c.caseId)}`);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") navigate(`/admin/cases?case=${encodeURIComponent(c.caseId)}`);
+                    }}
+                    className="border-b border-line last:border-b-0 hover:bg-surface-muted align-top cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                   >
                     <td className="py-3 pr-4 text-ink">
-                      <div className="font-mono text-[11px] text-ink-muted">{c.caseId}</div>
+                      <div className="font-mono text-[11px] text-ink-muted">
+                        <Link to={`/admin/cases?case=${encodeURIComponent(c.caseId)}`} className="text-brand hover:underline">
+                          {c.caseId}
+                        </Link>
+                      </div>
                       <div className="mt-0.5 text-xs font-semibold">{c.type}</div>
                       <div className="mt-0.5 text-[11px] text-ink-muted">
                         Updated {formatDate(c.lastUpdated)}

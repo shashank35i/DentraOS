@@ -7,6 +7,7 @@ import {
   Search as SearchIcon,
   Loader2 as Loader2Icon,
 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const ADMIN_API = `${API_BASE}/api/admin`;
@@ -28,6 +29,17 @@ type InventoryItem = {
   expiryDate: string | null;
 };
 
+type UsageItem = {
+  id: number;
+  appointment_id: number | null;
+  visit_id: number | null;
+  item_code: string | null;
+  item_name: string | null;
+  qty_used: number;
+  source_type?: string | null;
+  created_at: string;
+};
+
 type CreateInventoryPayload = {
   itemCode: string;
   name: string;
@@ -46,9 +58,11 @@ function computeStatus(stock: number, reorderThreshold: number) {
 }
 
 export const AdminInventory: React.FC = () => {
+  const navigate = useNavigate();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageItem[]>([]);
 
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
@@ -122,10 +136,31 @@ export const AdminInventory: React.FC = () => {
       });
 
       setItems(normalized);
+
+      const usageRes = await fetch(`${ADMIN_API}/inventory/usage?limit=8`, {
+        headers: getAuthHeaders(),
+      });
+      if (usageRes.ok) {
+        const usageData = await usageRes.json();
+        const usageItems: UsageItem[] = (usageData.items || []).map((r: any) => ({
+          id: Number(r.id || 0),
+          appointment_id: r.appointment_id != null ? Number(r.appointment_id) : null,
+          visit_id: r.visit_id != null ? Number(r.visit_id) : null,
+          item_code: r.item_code ?? null,
+          item_name: r.item_name ?? null,
+          qty_used: Number(r.qty_used || 0),
+          source_type: r.source_type ?? null,
+          created_at: String(r.created_at || ""),
+        }));
+        setUsage(usageItems);
+      } else {
+        setUsage([]);
+      }
     } catch (err) {
       console.error("AdminInventory error:", err);
       setError("Failed to load inventory.");
       setItems([]);
+      setUsage([]);
     } finally {
       setLoading(false);
     }
@@ -320,10 +355,24 @@ export const AdminInventory: React.FC = () => {
               return (
                 <div
                   key={item.id}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-surface-muted"
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement;
+                    if (target.closest("button, a")) return;
+                    navigate(`/admin/inventory/${encodeURIComponent(item.id)}`);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") navigate(`/admin/inventory/${encodeURIComponent(item.id)}`);
+                  }}
+                  className="flex items-center justify-between px-4 py-3 hover:bg-surface-muted cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                 >
                   <div>
-                    <p className="text-sm font-semibold text-ink">{item.name}</p>
+                    <p className="text-sm font-semibold text-ink">
+                      <Link to={`/admin/inventory/${encodeURIComponent(item.id)}`} className="text-brand hover:underline">
+                        {item.name}
+                      </Link>
+                    </p>
                     <p className="text-xs text-ink-muted">
                       {item.category || "Uncategorized"} - ID: {item.id}
                     </p>
@@ -357,6 +406,50 @@ export const AdminInventory: React.FC = () => {
               );
             })
           )}
+        </div>
+      </section>
+
+      <section className="surface rounded-2xl px-5 py-4 mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-ink">Recent usage</h2>
+          <div className="flex items-center gap-3">
+            <Link to="/admin/purchase-orders" className="text-xs text-brand hover:underline">
+              View draft PO
+            </Link>
+            <p className="text-xs text-ink-muted">Latest consumable deductions</p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-line bg-surface divide-y divide-[color:var(--line)]">
+          {usage.length === 0 ? (
+            <div className="px-4 py-3 text-xs text-ink-muted text-center">
+              No usage logs yet.
+            </div>
+          ) : (
+            usage.map((u) => (
+              <div key={u.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">
+                    {u.item_name || u.item_code || "Unknown item"}
+                  </p>
+                  <p className="text-xs text-ink-muted">
+                    Visit #{u.visit_id ?? "--"} ? Appointment #{u.appointment_id ?? "--"} ?{" "}
+                    {u.source_type || "VISIT_CONSUMABLES"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-ink">-{u.qty_used}</p>
+                  <p className="text-[11px] text-ink-muted">
+                    {u.created_at ? new Date(u.created_at).toLocaleString() : "--"}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="mt-3">
+          <Link to="/admin/purchase-orders" className="text-xs text-brand hover:underline">
+            View all usage and purchase orders
+          </Link>
         </div>
       </section>
 

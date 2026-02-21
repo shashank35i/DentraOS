@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { BellIcon, CheckIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { Link } from "react-router-dom";
 import { DoctorLayout } from "./DoctorLayout";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -20,7 +21,18 @@ type Notif = {
   status: string;
   created_at: string | null;
   scheduled_at: string | null;
+  related_entity_type?: string | null;
+  related_entity_id?: number | null;
 };
+
+function notificationHref(n: Notif) {
+  const t = String(n.related_entity_type || "").toLowerCase();
+  if (t === "appointments") return `/doctor/schedule`;
+  if (t === "cases") return `/doctor/cases`;
+  if (t === "purchase_orders" || String(n.type || "").includes("INVENTORY")) return `/doctor/insights`;
+  if (t === "invoices") return `/doctor/insights`;
+  return "/doctor/alerts";
+}
 
 export const DoctorNotificationsPage: React.FC = () => {
   const [items, setItems] = useState<Notif[]>([]);
@@ -140,6 +152,11 @@ export const DoctorNotificationsPage: React.FC = () => {
                     <div className="mt-1 text-sm text-ink">
                       {n.message}
                     </div>
+                    <div className="mt-2">
+                      <Link to={notificationHref(n)} className="text-xs text-brand hover:underline">
+                        Open related item
+                      </Link>
+                    </div>
                     <div className="mt-2 text-[11px] text-ink-muted">
                       {n.created_at || ""}
                       {n.scheduled_at && (
@@ -152,6 +169,8 @@ export const DoctorNotificationsPage: React.FC = () => {
                       <span className="font-mono">
                         {String(n.status).toUpperCase()}
                       </span>
+                      <span className="mx-2">-</span>
+                      <span className="font-mono">event #{n.id}</span>
                     </div>
                   </div>
 

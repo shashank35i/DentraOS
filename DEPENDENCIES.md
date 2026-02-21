@@ -1,4 +1,4 @@
-# Dental Clinic AI - Complete Dependencies & Versions
+﻿# Dental Clinic AI - Complete Dependencies & Versions
 
 ## Project Overview
 A comprehensive dental clinic management system with AI-powered agents, real-time analytics, and integrated payment gateway.
@@ -172,17 +172,17 @@ cd Frontend
 npm install
 ```
 
-### Python Assistant Service
-```bash
-cd Backend/assistant_service
-pip install -r requirements.txt
-```
+### Python Dental Agents / Worker (core)
+~~~bash
+cd Backend
+pip install -r requirements-core.txt
+~~~
 
-### Python Dental Agents
-```bash
-cd Backend/dental_agents
-pip install -r requirements.txt
-```
+### Python Assistant Service (optional, Python >=3.8)
+~~~bash
+cd Backend
+pip install -r requirements-assistant.txt
+~~~
 
 ---
 
@@ -291,7 +291,7 @@ JWT_SECRET=dental_clinic
 January 27, 2026
 
 ## Project Status
-✅ Production Ready with Demo Data
+âœ… Production Ready with Demo Data
 - All services running
 - Payment gateway integrated
 - AI case summaries implemented

@@ -113,6 +113,12 @@ if (typeof initAgents === "function") {
 }
 
 // ✅ Optional Node hooks (kept guarded)
+let enqueueEvent = null;
+let retryFailedFromEventQueue = null;
+let runAppointmentAgentOnce = null;
+let runInventoryAgentOnce = null;
+let runRevenueAgentOnce = null;
+let retryFailedFromAgentsIndex = null;
 
 try {
   ({ enqueueEvent, retryFailed: retryFailedFromEventQueue } = require("./agents/eventQueue"));
@@ -206,6 +212,25 @@ function toTimeStr(x) {
   const s = String(x || "").trim();
   if (!s) return "";
   return s.length === 5 ? `${s}:00` : s; // HH:MM -> HH:MM:SS
+}
+function safeJsonParse(value, fallback = null) {
+  try {
+    if (value == null) return fallback;
+    return typeof value === "string" ? JSON.parse(value) : value;
+  } catch {
+    return fallback;
+  }
+}
+function formatDateTime(d) {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  const h = String(dt.getHours()).padStart(2, "0");
+  const min = String(dt.getMinutes()).padStart(2, "0");
+  const sec = String(dt.getSeconds()).padStart(2, "0");
+  return `${y}-${m}-${day} ${h}:${min}:${sec}`;
 }
 // ===================================
 // ✅ DOCTOR: INVENTORY (read-only)
@@ -847,6 +872,228 @@ async function writeInventoryConsumedAudit({ appointmentId, userId, meta }) {
   } catch (_) { }
 }
 
+async function insertInventoryUsageLogFromDeduction({
+  appointmentId,
+  visitId,
+  doctorId,
+  itemId = null,
+  itemCode = null,
+  qtyUsed,
+  eventId = null,
+  sourceType = "VISIT_CONSUMABLES",
+}) {
+  const ok = await tableExists("inventory_usage_logs");
+  if (!ok) return { ok: false, reason: "inventory_usage_logs missing" };
+
+  const qty = Math.max(0, Math.floor(Number(qtyUsed || 0)));
+  if (!qty) return { ok: false, reason: "invalid qty" };
+
+  const itemKey = itemId ? `id:${itemId}` : `code:${itemCode || "unknown"}`;
+  const eventKey = Number.isFinite(Number(eventId)) ? Number(eventId) : "inline";
+  const lockKey = `inv_usage:${appointmentId || 0}:${visitId || 0}:${itemKey}:${qty}:${eventKey}`;
+  const locked = await insertIdempotencyLockIfPossible(lockKey);
+  if (!locked) return { ok: false, skipped: true, reason: "duplicate" };
+
+  const cols = await getTableColumns("inventory_usage_logs");
+  const insertCols = [];
+  const insertVals = [];
+
+  if (cols.has("appointment_id")) {
+    insertCols.push("appointment_id");
+    insertVals.push(appointmentId || null);
+  }
+  if (cols.has("visit_id")) {
+    insertCols.push("visit_id");
+    insertVals.push(visitId || null);
+  }
+  if (cols.has("item_id") && itemId != null) {
+    insertCols.push("item_id");
+    insertVals.push(itemId);
+  }
+  if (cols.has("item_code") && itemCode) {
+    insertCols.push("item_code");
+    insertVals.push(String(itemCode));
+  }
+  if (cols.has("qty_used")) {
+    insertCols.push("qty_used");
+    insertVals.push(qty);
+  } else if (cols.has("qty")) {
+    insertCols.push("qty");
+    insertVals.push(qty);
+  }
+  if (cols.has("doctor_id")) {
+    insertCols.push("doctor_id");
+    insertVals.push(doctorId || null);
+  }
+  if (cols.has("source")) {
+    const sourceValues = await getEnumValues("inventory_usage_logs", "source");
+    insertCols.push("source");
+    insertVals.push(pickEnumValue(sourceValues, ["AUTO", "MANUAL", "ADJUSTMENT"], "AUTO"));
+  }
+  if (cols.has("source_type")) {
+    insertCols.push("source_type");
+    insertVals.push(sourceType);
+  }
+  if (cols.has("source_ref_id")) {
+    insertCols.push("source_ref_id");
+    insertVals.push(visitId || appointmentId || null);
+  }
+  if (cols.has("event_id")) {
+    insertCols.push("event_id");
+    insertVals.push(Number.isFinite(Number(eventId)) ? Number(eventId) : null);
+  }
+  if (cols.has("dedupe_key")) {
+    insertCols.push("dedupe_key");
+    insertVals.push(lockKey.slice(0, 190));
+  }
+  if (cols.has("meta_json")) {
+    insertCols.push("meta_json");
+    insertVals.push(
+      JSON.stringify({
+        appointmentId: appointmentId || null,
+        visitId: visitId || null,
+        itemId: itemId || null,
+        itemCode: itemCode || null,
+        qtyUsed: qty,
+        sourceType,
+        eventId: Number.isFinite(Number(eventId)) ? Number(eventId) : null,
+      })
+    );
+  }
+  if (cols.has("created_at")) {
+    insertCols.push("created_at");
+    insertVals.push(new Date());
+  } else if (cols.has("used_at")) {
+    insertCols.push("used_at");
+    insertVals.push(new Date());
+  }
+
+  if (!insertCols.length) return { ok: false, reason: "no compatible columns" };
+  const placeholders = insertCols.map(() => "?").join(",");
+  await pool.query(
+    `INSERT INTO inventory_usage_logs (${insertCols.join(",")}) VALUES (${placeholders})`,
+    insertVals
+  );
+  return { ok: true };
+}
+
+async function ensureLowStockPoDraft({ itemId, itemCode, vendorId = null, stock, threshold }) {
+  const hasPo = await tableExists("purchase_orders");
+  const hasPoi = await tableExists("purchase_order_items");
+  if (!hasPo || !hasPoi) return { ok: false, reason: "po tables missing" };
+
+  const dateKey = formatDateYYYYMMDD();
+  const key = `po_draft:${vendorId || 0}:${itemCode || itemId}:${dateKey}`;
+  const locked = await insertIdempotencyLockIfPossible(key);
+  if (!locked) return { ok: false, skipped: true, reason: "duplicate" };
+
+  const poCols = await getTableColumns("purchase_orders");
+  const poiCols = await getTableColumns("purchase_order_items");
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let poId = null;
+    const statusFilter = poCols.has("status") ? "AND status IN ('DRAFT','REQUESTED')" : "";
+    if (poCols.has("vendor_id")) {
+      const [existing] = await conn.query(
+        `SELECT id FROM purchase_orders
+         WHERE ${(vendorId == null ? "vendor_id IS NULL" : "vendor_id = ?")}
+           AND DATE(created_at) = CURDATE()
+           ${statusFilter}
+         ORDER BY id DESC
+         LIMIT 1`,
+        vendorId == null ? [] : [vendorId]
+      );
+      if (existing.length) poId = Number(existing[0].id);
+    }
+
+    if (!poId) {
+      const cols = [];
+      const vals = [];
+      if (poCols.has("vendor_id")) {
+        cols.push("vendor_id");
+        vals.push(vendorId);
+      }
+      if (poCols.has("status")) {
+        cols.push("status");
+        vals.push("DRAFT");
+      }
+      if (poCols.has("notes")) {
+        cols.push("notes");
+        vals.push(`Auto draft for low stock (${itemCode || itemId})`);
+      }
+      if (poCols.has("created_at")) {
+        cols.push("created_at");
+        vals.push(new Date());
+      }
+      if (poCols.has("updated_at")) {
+        cols.push("updated_at");
+        vals.push(new Date());
+      }
+      const placeholders = cols.map(() => "?").join(",");
+      const [insPo] = await conn.query(
+        `INSERT INTO purchase_orders (${cols.join(",")}) VALUES (${placeholders})`,
+        vals
+      );
+      poId = Number(insPo.insertId);
+    }
+
+    const qty = Math.max(1, Number(threshold || 0) - Number(stock || 0) + 1);
+    const [existingPoi] = await conn.query(
+      `SELECT id FROM purchase_order_items
+       WHERE purchase_order_id = ? AND item_code = ?
+       LIMIT 1`,
+      [poId, String(itemCode || "")]
+    );
+    if (!existingPoi.length) {
+      const itemCols = [];
+      const itemVals = [];
+      if (poiCols.has("purchase_order_id")) {
+        itemCols.push("purchase_order_id");
+        itemVals.push(poId);
+      }
+      if (poiCols.has("item_code")) {
+        itemCols.push("item_code");
+        itemVals.push(String(itemCode || ""));
+      }
+      if (poiCols.has("qty")) {
+        itemCols.push("qty");
+        itemVals.push(qty);
+      }
+      if (poiCols.has("created_at")) {
+        itemCols.push("created_at");
+        itemVals.push(new Date());
+      }
+      const ph = itemCols.map(() => "?").join(",");
+      await conn.query(
+        `INSERT INTO purchase_order_items (${itemCols.join(",")}) VALUES (${ph})`,
+        itemVals
+      );
+    }
+
+    await conn.commit();
+
+    await insertNotificationInline({
+      userRole: "Admin",
+      title: "Low stock PO drafted",
+      message: `Auto-created PO draft for ${itemCode || `item ${itemId}`}.`,
+      notifType: "INVENTORY_LOW_STOCK_PO_DRAFTED",
+      relatedType: "purchase_orders",
+      relatedId: poId,
+      priority: 125,
+      meta: { poId, itemId, itemCode, stock, threshold },
+    });
+
+    return { ok: true, poId };
+  } catch (e) {
+    await conn.rollback();
+    return { ok: false, reason: e?.message || "po insert failed" };
+  } finally {
+    conn.release();
+  }
+}
+
 async function insertIdempotencyLockIfPossible(lockKey) {
   const ok = await tableExists("idempotency_locks");
   if (!ok) return true;
@@ -1049,6 +1296,64 @@ async function insertNotificationInline({
   );
 }
 
+function buildReminderSchedule({ scheduledDate, scheduledTime }) {
+  const base = new Date(`${scheduledDate}T${scheduledTime || "09:00:00"}`);
+  if (Number.isNaN(base.getTime())) return [];
+  const plan = [
+    { offsetMin: -24 * 60, label: "24h reminder" },
+    { offsetMin: -2 * 60, label: "2h reminder" },
+    { offsetMin: -15, label: "15m reminder" },
+  ];
+  return plan
+    .map((p) => ({
+      label: p.label,
+      scheduledAt: new Date(base.getTime() + p.offsetMin * 60 * 1000),
+    }))
+    .filter((p) => p.scheduledAt.getTime() > Date.now() - 5 * 60 * 1000);
+}
+
+async function createReminderJobsIfPossible({
+  appointmentId,
+  patientId,
+  doctorId,
+  scheduledDate,
+  scheduledTime,
+  channels = ["IN_APP", "WHATSAPP", "SMS", "CALL"],
+}) {
+  if (!(await tableExists("reminder_jobs"))) return { created: 0 };
+
+  const jobs = [];
+  const schedule = buildReminderSchedule({ scheduledDate, scheduledTime });
+  const channelSet = Array.from(new Set(channels.map((c) => String(c).toUpperCase())));
+  const users = [patientId, doctorId].filter((v) => Number.isFinite(Number(v)) && Number(v) > 0);
+
+  for (const userId of users) {
+    for (const slot of schedule) {
+      for (const channel of channelSet) {
+        const dedupe = `reminder:${appointmentId}:${userId}:${channel}:${slot.scheduledAt.toISOString().slice(0, 16)}`;
+        const locked = await insertIdempotencyLockIfPossible(dedupe);
+        if (!locked) continue;
+        await pool.query(
+          `
+          INSERT INTO reminder_jobs (appointment_id, user_id, channel, status, scheduled_at, meta_json)
+          VALUES (?, ?, ?, 'QUEUED', ?, ?)
+          `,
+          [
+            appointmentId,
+            userId,
+            channel,
+            formatDateTime(slot.scheduledAt),
+            JSON.stringify({ label: slot.label, dedupeKey: dedupe, source: "appointment_create" }),
+          ]
+        );
+        jobs.push({ userId, channel, scheduledAt: slot.scheduledAt, label: slot.label });
+      }
+    }
+  }
+
+  return { created: jobs.length, jobs };
+}
+
 async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, userId }) {
   const okVisits = await tableExists("visits");
   const okVc = await tableExists("visit_consumables");
@@ -1103,13 +1408,20 @@ async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, use
 
   if (!items.length) return { ok: false, reason: "no consumables" };
 
+  const usageByRef = new Map();
+  for (const it of items) {
+    const k = String(it.itemRef);
+    usageByRef.set(k, (usageByRef.get(k) || 0) + Number(it.qty || 0));
+  }
+  const dedupeItems = Array.from(usageByRef.entries()).map(([itemRef, qty]) => ({ itemRef, qty }));
+
   const conn = await pool.getConnection();
   const touchedRefs = [];
   let updated = 0;
   try {
     await conn.beginTransaction();
 
-    for (const it of items) {
+    for (const it of dedupeItems) {
       const q = Math.floor(Number(it.qty || 0));
       if (!q || q <= 0) continue;
 
@@ -1118,13 +1430,13 @@ async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, use
           `UPDATE inventory_items SET stock = stock - ? WHERE ${invIdCol} = ?`,
           [q, it.itemRef]
         );
-        touchedRefs.push({ by: "id", value: it.itemRef });
+        touchedRefs.push({ by: "id", value: it.itemRef, qty: q });
       } else {
         await conn.query(
           `UPDATE inventory_items SET stock = stock - ? WHERE ${invCodeCol} = ?`,
           [q, it.itemRef]
         );
-        touchedRefs.push({ by: "code", value: it.itemRef });
+        touchedRefs.push({ by: "code", value: it.itemRef, qty: q });
       }
       updated += 1;
     }
@@ -1146,6 +1458,7 @@ async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, use
   }
 
   // Low stock notifications (inline fallback)
+  let usageRowsInserted = 0;
   if (touchedRefs.length) {
     const invCols = await getTableColumns("inventory_items");
     const invIdCol = pickCol(invCols, ["id", "inventory_item_id"]);
@@ -1161,6 +1474,8 @@ async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, use
       const [r] = await pool.query(
         `
         SELECT ${invIdCol ? `${invIdCol} AS id,` : "NULL AS id,"}
+               ${invCols.has("vendor_id") ? "vendor_id AS vendor_id," : "NULL AS vendor_id,"}
+               ${invCodeCol ? `${invCodeCol} AS code,` : "NULL AS code,"}
                ${invNameCol ? `${invNameCol} AS name,` : "NULL AS name,"}
                ${invStockCol} AS stock,
                ${invThCol} AS threshold
@@ -1172,6 +1487,18 @@ async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, use
       );
       const row = r?.[0];
       if (!row) continue;
+      const logRes = await insertInventoryUsageLogFromDeduction({
+        appointmentId,
+        visitId,
+        doctorId: doctorId || null,
+        itemId: Number.isFinite(Number(row.id)) ? Number(row.id) : null,
+        itemCode: row.code || (ref.by === "code" ? String(ref.value) : null),
+        qtyUsed: ref.qty,
+        eventId: null,
+        sourceType: "VISIT_CONSUMABLES",
+      });
+      if (logRes?.ok) usageRowsInserted += 1;
+
       const stock = Number(row.stock ?? 0);
       const threshold = Number(row.threshold ?? 0);
       if (!Number.isFinite(stock) || !Number.isFinite(threshold)) continue;
@@ -1182,11 +1509,23 @@ async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, use
           stock,
           threshold,
         });
+        await ensureLowStockPoDraft({
+          itemId: Number(row.id || 0) || null,
+          itemCode: row.code || (ref.by === "code" ? String(ref.value) : null),
+          vendorId: row.vendor_id != null ? Number(row.vendor_id) : null,
+          stock,
+          threshold,
+        });
       }
     }
   }
-
-  return { ok: true, updated };
+  const [recentUsageRows] = await pool.query(
+    `SELECT id, appointment_id, visit_id, item_code, qty_used, created_at
+     FROM inventory_usage_logs
+     ORDER BY id DESC
+     LIMIT 5`
+  );
+  return { ok: true, updated, usageRowsInserted, recentUsageLogs: recentUsageRows || [] };
 }
 
 // ===================================
@@ -1442,26 +1781,68 @@ ensureAgentEventsSchema();
 // ===================================
 // ✅ DB outbox enqueue (Python worker)
 // ===================================
-async function enqueueEventDb(eventType, payload, createdByUserId = null) {
-  const safePayload = {
-    ...(payload || {}),
+function normalizeAgentEventPayload(eventType, payload, createdByUserId = null) {
+  const base = { ...(payload || {}) };
+  const entityType =
+    base.entityType ||
+    (base.caseId || base.caseDbId ? "cases" : null) ||
+    (base.appointmentId ? "appointments" : null) ||
+    (base.invoiceId ? "invoices" : null) ||
+    (base.itemId || base.item_code || base.itemCode ? "inventory_items" : null) ||
+    null;
+  const entityId =
+    base.entityId ??
+    base.caseId ??
+    base.caseDbId ??
+    base.appointmentId ??
+    base.invoiceId ??
+    base.itemId ??
+    null;
+  const clinicId = base.clinicId ?? base.clinic_id ?? null;
+  const actorUserId = base.actorUserId ?? base.actor_user_id ?? createdByUserId ?? null;
+  const traceId =
+    base.traceId ||
+    `${String(eventType || "event")}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+
+  return {
+    ...base,
+    entityType,
+    entityId,
+    clinicId,
+    actorUserId,
+    traceId,
     __meta: {
       createdByUserId: createdByUserId || null,
       createdAt: new Date().toISOString(),
     },
   };
+}
+
+async function enqueueEventDb(eventType, payload, createdByUserId = null) {
+  const safePayload = normalizeAgentEventPayload(eventType, payload, createdByUserId);
 
   // choose correct "new" status from real enum
   const statusValues = await getEnumValues("agent_events", "status");
   const NEW_STATUS = pickEnumValue(statusValues, ["NEW", "PENDING"], "NEW"); // fallback NEW
+  const cols = await getTableColumns("agent_events");
 
-  await pool.query(
-    `
-    INSERT INTO agent_events (event_type, payload_json, status, available_at, locked_by, locked_until)
-    VALUES (?, ?, ?, NOW(), NULL, NULL)
-    `,
-    [String(eventType), JSON.stringify(safePayload), NEW_STATUS]
-  );
+  if (cols.has("created_by_user_id")) {
+    await pool.query(
+      `
+      INSERT INTO agent_events (event_type, payload_json, status, available_at, locked_by, locked_until, created_by_user_id)
+      VALUES (?, ?, ?, NOW(), NULL, NULL, ?)
+      `,
+      [String(eventType), JSON.stringify(safePayload), NEW_STATUS, createdByUserId || null]
+    );
+  } else {
+    await pool.query(
+      `
+      INSERT INTO agent_events (event_type, payload_json, status, available_at, locked_by, locked_until)
+      VALUES (?, ?, ?, NOW(), NULL, NULL)
+      `,
+      [String(eventType), JSON.stringify(safePayload), NEW_STATUS]
+    );
+  }
 }
 
 
@@ -1687,6 +2068,102 @@ async function ensureClinicSetupSchema() {
 ensureClinicSetupSchema();
 
 // ===================================
+// Agent feature tables (additive, safe)
+// ===================================
+async function ensureAgentFeatureTables() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS appointment_recommendations (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        appointment_id BIGINT UNSIGNED NULL,
+        doctor_id BIGINT UNSIGNED NULL,
+        recommended_start DATETIME NOT NULL,
+        recommended_end DATETIME NULL,
+        reason VARCHAR(255) NULL,
+        confidence INT NOT NULL DEFAULT 50,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_appt_rec_doctor (doctor_id, created_at),
+        KEY idx_appt_rec_appt (appointment_id)
+      ) ENGINE=InnoDB;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS reminder_jobs (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        appointment_id BIGINT UNSIGNED NULL,
+        user_id BIGINT UNSIGNED NULL,
+        channel ENUM('IN_APP','EMAIL','SMS','WHATSAPP','CALL') NOT NULL DEFAULT 'IN_APP',
+        status ENUM('QUEUED','SENT','FAILED','CANCELLED') NOT NULL DEFAULT 'QUEUED',
+        scheduled_at DATETIME NOT NULL,
+        sent_at DATETIME NULL,
+        meta_json LONGTEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_reminder_appt (appointment_id, scheduled_at),
+        KEY idx_reminder_user (user_id, status),
+        KEY idx_reminder_status (status, scheduled_at)
+      ) ENGINE=InnoDB;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS inventory_anomalies (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        item_code VARCHAR(64) NOT NULL,
+        doctor_id BIGINT UNSIGNED NULL,
+        procedure_code VARCHAR(64) NULL,
+        anomaly_type VARCHAR(64) NOT NULL,
+        severity ENUM('LOW','MEDIUM','HIGH','CRITICAL') NOT NULL DEFAULT 'LOW',
+        score DECIMAL(6,2) NOT NULL DEFAULT 0,
+        meta_json LONGTEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_inventory_anomaly_item (item_code, created_at),
+        KEY idx_inventory_anomaly_doctor (doctor_id, created_at)
+      ) ENGINE=InnoDB;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS revenue_anomalies (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        invoice_id BIGINT UNSIGNED NULL,
+        appointment_id BIGINT UNSIGNED NULL,
+        anomaly_type VARCHAR(64) NOT NULL,
+        severity ENUM('LOW','MEDIUM','HIGH','CRITICAL') NOT NULL DEFAULT 'LOW',
+        estimated_loss DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+        meta_json LONGTEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_revenue_anomaly_invoice (invoice_id, created_at),
+        KEY idx_revenue_anomaly_appt (appointment_id, created_at)
+      ) ENGINE=InnoDB;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS case_documents (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        case_id BIGINT UNSIGNED NOT NULL,
+        doc_type ENUM('clinical_summary','patient_explanation','consent','post_op') NOT NULL,
+        content LONGTEXT NULL,
+        status ENUM('DRAFT','READY','APPROVED','REJECTED') NOT NULL DEFAULT 'DRAFT',
+        created_by_agent_event_id BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_case_doc (case_id, doc_type),
+        KEY idx_case_doc_created (created_at)
+      ) ENGINE=InnoDB;
+    `);
+
+    console.log("Agent feature tables ready");
+  } catch (e) {
+    console.error("ensureAgentFeatureTables failed:", e?.message || e);
+  }
+}
+ensureAgentFeatureTables();
+
+// ===================================
 // ✅ Schema capability detection (to keep conflict logic robust across DB versions)
 // ===================================
 const schemaCaps = {
@@ -1723,6 +2200,11 @@ app.get("/api/health", (req, res) => {
 // ===================================
 // SIGN-UP EMAIL OTP (for Create Account)
 // ===================================
+const SIGNUP_OTP_BYPASS =
+  String(process.env.SIGNUP_OTP_BYPASS || "").trim() === "1" ||
+  String(process.env.SIGNUP_OTP_BYPASS || "").trim().toLowerCase() === "true" ||
+  process.env.NODE_ENV !== "production";
+
 app.post("/api/auth/email-otp/request", async (req, res) => {
   try {
     const { email } = req.body || {};
@@ -1735,6 +2217,16 @@ app.post("/api/auth/email-otp/request", async (req, res) => {
     const [existing] = await pool.query("SELECT id, full_name FROM users WHERE email = ?", [normalizedEmail]);
     if (existing.length > 0) {
       return res.status(409).json({ message: "Email already registered. Please login instead." });
+    }
+
+    if (SIGNUP_OTP_BYPASS) {
+      // Local/dev bypass: allow signup flow without external mail dependency.
+      signupOtpStore.set(normalizedEmail, {
+        code: "000000",
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        verified: true,
+      });
+      return res.json({ message: "OTP bypass enabled. Email marked verified for signup." });
     }
 
     const otp = generateOtp();
@@ -1766,6 +2258,16 @@ app.post("/api/auth/email-otp/verify", (req, res) => {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
+
+    if (SIGNUP_OTP_BYPASS) {
+      signupOtpStore.set(normalizedEmail, {
+        code: String(otp || "000000"),
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        verified: true,
+      });
+      return res.json({ message: "OTP bypass enabled", valid: true });
+    }
+
     const entry = signupOtpStore.get(normalizedEmail);
 
     if (!entry) {
@@ -2179,6 +2681,8 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
       `
       SELECT
         id, channel, type, title, message, status,
+        related_entity_type,
+        related_entity_id,
         DATE_FORMAT(scheduled_at, '%Y-%m-%d %H:%i:%s') AS scheduled_at,
         DATE_FORMAT(read_at, '%Y-%m-%d %H:%i:%s') AS read_at,
         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
@@ -3539,7 +4043,28 @@ async function enqueueInventoryMonitorTick() {
   });
 }
 
+// ✅ Appointment monitor tick (periodic no-show/delay automation)
+async function enqueueAppointmentMonitorTick() {
+  const now = new Date();
+  const intervalMin = Math.max(1, Number(process.env.APPOINTMENT_MONITOR_INTERVAL_MIN || 10));
+  const bucket = Math.floor(now.getMinutes() / intervalMin);
+  const key = `appointment_monitor:${formatDateYYYYMMDD(now)}:${now.getHours()}:${bucket}`;
+  const ok = await insertIdempotencyLockIfPossible(key);
+  if (!ok) return;
+
+  await enqueueEventCompat({
+    eventType: "AppointmentMonitorTick",
+    payload: { source: "scheduler", intervalMin },
+    createdByUserId: null,
+  });
+}
+
 setTimeout(() => {
+  enqueueAppointmentMonitorTick().catch(() => { });
+  setInterval(() => {
+    enqueueAppointmentMonitorTick().catch(() => { });
+  }, Math.max(1, Number(process.env.APPOINTMENT_MONITOR_INTERVAL_MIN || 10)) * 60 * 1000);
+
   enqueueInventoryMonitorTick().catch(() => { });
   setInterval(() => {
     enqueueInventoryMonitorTick().catch(() => { });
@@ -3805,6 +4330,111 @@ app.get(
 );
 
 // ADMIN: CREATE APPOINTMENT (existing behavior preserved) ✅ + NEW event emit for agents
+
+app.get(
+  `${ADMIN_BASE}/appointments/:dbId`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const dbId = Number(req.params.dbId);
+      if (!Number.isFinite(dbId) || dbId <= 0) {
+        return res.status(400).json({ message: "Invalid appointment id" });
+      }
+      const [rows] = await pool.query(
+        `
+        SELECT
+          a.id, a.appointment_uid, a.patient_id, a.doctor_id, a.linked_case_id,
+          DATE_FORMAT(a.scheduled_date, '%Y-%m-%d') AS scheduled_date,
+          TIME_FORMAT(a.scheduled_time, '%H:%i:%s') AS scheduled_time,
+          a.type, a.status, NULL AS notes,
+          p.full_name AS patient_name, d.full_name AS doctor_name, c.case_uid
+        FROM appointments a
+        LEFT JOIN users p ON p.id = a.patient_id
+        LEFT JOIN users d ON d.id = a.doctor_id
+        LEFT JOIN cases c ON c.id = a.linked_case_id
+        WHERE a.id = ?
+        LIMIT 1
+        `,
+        [dbId]
+      );
+      if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
+
+      const [usageRows] = await pool.query(
+        `
+        SELECT
+          l.id,
+          l.appointment_id,
+          l.visit_id,
+          l.item_code,
+          COALESCE(i.name, l.item_code) AS item_name,
+          l.qty_used,
+          l.created_at
+        FROM inventory_usage_logs l
+        LEFT JOIN inventory_items i ON i.id = l.item_id
+        WHERE l.appointment_id = ?
+        ORDER BY l.id DESC
+        LIMIT 20
+        `,
+        [dbId]
+      );
+      const [invoiceRows] = await pool.query(
+        `
+        SELECT id, amount, status, issue_date, paid_date
+        FROM invoices
+        WHERE appointment_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        `,
+        [dbId]
+      );
+
+      return res.json({
+        item: {
+          ...rows[0],
+          consumables: usageRows || [],
+          invoice: invoiceRows?.[0] || null,
+        },
+      });
+    } catch (err) {
+      console.error("ADMIN APPOINTMENT DETAILS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load appointment details" });
+    }
+  }
+);
+
+
+app.patch(
+  `${ADMIN_BASE}/appointments/:dbId`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const dbId = Number(req.params.dbId);
+      const status = String(req.body?.status || "").trim();
+      if (!Number.isFinite(dbId) || dbId <= 0) return res.status(400).json({ message: "Invalid appointment id" });
+      if (!status) return res.status(400).json({ message: "Status is required" });
+      const [existingRows] = await pool.query(`SELECT status FROM appointments WHERE id = ? LIMIT 1`, [dbId]);
+      if (!existingRows.length) return res.status(404).json({ message: "Appointment not found" });
+      const currentStatus = String(existingRows[0].status || "").trim().toLowerCase();
+      const nextStatus = status.toLowerCase();
+      const isTerminalCurrent =
+        currentStatus === "completed" || currentStatus === "cancelled" || currentStatus === "no-show";
+      if (isTerminalCurrent && currentStatus !== nextStatus) {
+        return res.status(409).json({
+          message: "Appointment is in terminal state and cannot be changed",
+          status: existingRows[0].status,
+        });
+      }
+      await pool.query(`UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?`, [status, dbId]);
+      return res.json({ ok: true, id: dbId, status });
+    } catch (err) {
+      console.error("ADMIN APPOINTMENT STATUS UPDATE ERROR:", err);
+      return res.status(500).json({ message: "Failed to update appointment status" });
+    }
+  }
+);
+
 app.post(
   `${ADMIN_BASE}/appointments`,
   authMiddleware,
@@ -4059,6 +4689,19 @@ app.post(
         console.error("Appointment created notification error:", notifyErr);
       }
 
+      try {
+        await createReminderJobsIfPossible({
+          appointmentId: appointmentDbId,
+          patientId,
+          doctorId,
+          scheduledDate: dateStr,
+          scheduledTime: timeStr,
+          channels: ["IN_APP", "WHATSAPP", "SMS", "CALL"],
+        });
+      } catch (reminderErr) {
+        console.error("Appointment reminder job create error:", reminderErr?.message || reminderErr);
+      }
+
       return res.status(201).json({
         appointment: {
           id: appointmentUid,
@@ -4125,6 +4768,63 @@ app.patch(
     } catch (err) {
       console.error("COMPLETE APPOINTMENT ERROR:", err);
       return res.json({ ok: false, error: true });
+    }
+  }
+);
+
+app.post(
+  `${ADMIN_BASE}/appointments/:id/reminder-preview`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const appointmentId = Number(req.params.id);
+      if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
+        return res.status(400).json({ message: "Invalid appointment id" });
+      }
+      const [rows] = await pool.query(
+        `
+        SELECT id, patient_id, doctor_id,
+               DATE_FORMAT(scheduled_date, '%Y-%m-%d') AS scheduled_date,
+               TIME_FORMAT(scheduled_time, '%H:%i:%s') AS scheduled_time,
+               status
+        FROM appointments
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [appointmentId]
+      );
+      if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
+      const appt = rows[0];
+      const channels = Array.isArray(req.body?.channels) && req.body.channels.length
+        ? req.body.channels.map((c) => String(c).toUpperCase())
+        : ["IN_APP", "WHATSAPP", "SMS", "CALL"];
+      const schedule = buildReminderSchedule({
+        scheduledDate: appt.scheduled_date,
+        scheduledTime: appt.scheduled_time,
+      });
+
+      const previewJobs = [];
+      for (const channel of channels) {
+        for (const slot of schedule) {
+          previewJobs.push({
+            channel,
+            status: "QUEUED",
+            scheduledAt: formatDateTime(slot.scheduledAt),
+            messageWindow: slot.label,
+            targetUsers: [appt.patient_id, appt.doctor_id].filter(Boolean),
+          });
+        }
+      }
+      return res.json({
+        appointmentId,
+        status: appt.status,
+        channelTargets: channels,
+        jobs: previewJobs,
+      });
+    } catch (err) {
+      console.error("REMINDER PREVIEW ERROR:", err);
+      return res.status(500).json({ message: "Failed to generate reminder preview" });
     }
   }
 );
@@ -4404,6 +5104,151 @@ app.get(
   }
 );
 
+function eventBucketName(eventType) {
+  const t = String(eventType || "").toLowerCase();
+  if (t.includes("appointment")) return "appointment";
+  if (t.includes("invent")) return "inventory";
+  if (t.includes("revenue") || t.includes("invoice")) return "revenue";
+  if (t.includes("case")) return "case_tracking";
+  return "other";
+}
+
+app.get(
+  `${ADMIN_BASE}/agent-events`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50)));
+      const cursor = Number(req.query.cursor || 0);
+      const eventType = String(req.query.event_type || "").trim();
+      const status = String(req.query.status || "").trim().toUpperCase();
+      const entityType = String(req.query.entity_type || "").trim();
+      const entityId = Number(req.query.entity_id || 0);
+
+      const where = ["1=1"];
+      const vals = [];
+      if (cursor > 0) {
+        where.push("id < ?");
+        vals.push(cursor);
+      }
+      if (eventType) {
+        where.push("event_type = ?");
+        vals.push(eventType);
+      }
+      if (status) {
+        where.push("status = ?");
+        vals.push(status);
+      }
+      if (entityType) {
+        where.push("payload_json LIKE ?");
+        vals.push(`%\"entityType\":\"${entityType}\"%`);
+      }
+      if (entityId > 0) {
+        where.push("(payload_json LIKE ? OR payload_json LIKE ?)");
+        vals.push(`%\"entityId\":${entityId}%`);
+        vals.push(`%\"entityId\":\"${entityId}\"%`);
+      }
+
+      vals.push(limit);
+      const [rows] = await pool.query(
+        `
+        SELECT id, event_type, status, payload_json, attempts, max_attempts, available_at, created_at, updated_at, last_error
+        FROM agent_events
+        WHERE ${where.join(" AND ")}
+        ORDER BY id DESC
+        LIMIT ?
+        `,
+        vals
+      );
+      const items = (rows || []).map((r) => ({
+        id: r.id,
+        eventType: r.event_type,
+        bucket: eventBucketName(r.event_type),
+        status: r.status,
+        attempts: Number(r.attempts || 0),
+        maxAttempts: Number(r.max_attempts || 0),
+        availableAt: r.available_at,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        lastError: r.last_error || null,
+        payload: safeJsonParse(r.payload_json, {}),
+      }));
+      return res.json({
+        items,
+        nextCursor: items.length ? items[items.length - 1].id : null,
+      });
+    } catch (err) {
+      console.error("ADMIN AGENT EVENTS ERROR:", err);
+      return res.status(500).json({ items: [], message: "Failed to load agent events" });
+    }
+  }
+);
+
+app.get(
+  `${ADMIN_BASE}/agents/feature-status`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (_req, res) => {
+    try {
+      const [eventRows] = await pool.query(
+        `
+        SELECT id, event_type, status, updated_at
+        FROM agent_events
+        ORDER BY id DESC
+        LIMIT 400
+        `
+      );
+      const [notifRows] = await pool.query(
+        `
+        SELECT id, type, status, created_at
+        FROM notifications
+        ORDER BY id DESC
+        LIMIT 200
+        `
+      );
+
+      const base = {
+        appointment: { total: 0, done: 0, failed: 0, processing: 0, latest: null },
+        inventory: { total: 0, done: 0, failed: 0, processing: 0, latest: null },
+        revenue: { total: 0, done: 0, failed: 0, processing: 0, latest: null },
+        case_tracking: { total: 0, done: 0, failed: 0, processing: 0, latest: null },
+      };
+
+      for (const row of eventRows || []) {
+        const bucket = eventBucketName(row.event_type);
+        if (!base[bucket]) continue;
+        base[bucket].total += 1;
+        const s = String(row.status || "").toUpperCase();
+        if (s === "DONE") base[bucket].done += 1;
+        if (s === "FAILED" || s === "DEAD") base[bucket].failed += 1;
+        if (s === "NEW" || s === "PROCESSING") base[bucket].processing += 1;
+        if (!base[bucket].latest) {
+          base[bucket].latest = {
+            eventId: row.id,
+            eventType: row.event_type,
+            status: row.status,
+            updatedAt: row.updated_at,
+          };
+        }
+      }
+
+      return res.json({
+        buckets: base,
+        notificationSummary: {
+          total: (notifRows || []).length,
+          sent: (notifRows || []).filter((n) => String(n.status || "").toUpperCase() === "SENT").length,
+          pending: (notifRows || []).filter((n) => ["NEW", "PENDING"].includes(String(n.status || "").toUpperCase())).length,
+          failed: (notifRows || []).filter((n) => String(n.status || "").toUpperCase() === "FAILED").length,
+        },
+      });
+    } catch (err) {
+      console.error("ADMIN AGENT FEATURE STATUS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load feature status" });
+    }
+  }
+);
+
 app.post(
   `${ADMIN_BASE}/agents/retry-failed-events`,
   authMiddleware,
@@ -4629,6 +5474,52 @@ app.get(
   }
 );
 
+
+app.get(
+  `${ADMIN_BASE}/purchase-orders/:id`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+
+      const [headRows] = await pool.query(
+        `
+        SELECT po.id, po.status, po.notes, po.created_at, po.updated_at, po.vendor_id, v.name AS vendor_name
+        FROM purchase_orders po
+        LEFT JOIN vendors v ON v.id = po.vendor_id
+        WHERE po.id = ?
+        LIMIT 1
+        `,
+        [id]
+      );
+      if (!headRows.length) return res.status(404).json({ message: "Purchase order not found" });
+
+      const [itemRows] = await pool.query(
+        `
+        SELECT
+          poi.id,
+          poi.item_code,
+          poi.qty,
+          poi.unit_cost AS unit_price,
+          ii.name AS item_name
+        FROM purchase_order_items poi
+        LEFT JOIN inventory_items ii ON ii.item_code = poi.item_code
+        WHERE poi.purchase_order_id = ?
+        ORDER BY poi.id ASC
+        `,
+        [id]
+      );
+
+      return res.json({ item: headRows[0], items: itemRows || [] });
+    } catch (err) {
+      console.error("ADMIN PURCHASE ORDER DETAILS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load purchase order details" });
+    }
+  }
+);
+
 app.patch(
   `${ADMIN_BASE}/purchase-orders/:id`,
   authMiddleware,
@@ -4720,6 +5611,85 @@ app.post(
 );
 
 // ✅ ADMIN: INVENTORY update (vendor + thresholds + basics)
+
+app.get(
+  `${ADMIN_BASE}/inventory/:itemCode`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const itemCode = String(req.params.itemCode || "").trim();
+      if (!itemCode) return res.status(400).json({ message: "itemCode required" });
+
+      // Route-order fallback: "/inventory/usage" may be captured by :itemCode.
+      if (itemCode.toLowerCase() === "usage") {
+        if (!(await tableExists("inventory_usage_logs"))) {
+          return res.json({ items: [] });
+        }
+        const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
+        const [rows] = await pool.query(
+          `
+          SELECT l.id,
+                 l.appointment_id,
+                 l.visit_id,
+                 l.item_id,
+                 l.item_code,
+                 l.qty_used,
+                 l.source,
+                 l.source_type,
+                 l.source_ref_id,
+                 l.event_id,
+                 l.created_at,
+                 i.name AS item_name
+          FROM inventory_usage_logs l
+          LEFT JOIN inventory_items i ON i.id = l.item_id
+          ORDER BY l.id DESC
+          LIMIT ?
+          `,
+          [limit]
+        );
+        return res.json({ items: rows || [] });
+      }
+
+      const [rows] = await pool.query(
+        `
+        SELECT id, item_code, name, category, stock, status, reorder_threshold, expiry_date, vendor_id, updated_at
+        FROM inventory_items
+        WHERE item_code = ?
+        LIMIT 1
+        `,
+        [itemCode]
+      );
+      if (!rows.length) return res.status(404).json({ message: "Item not found" });
+
+      const item = rows[0];
+      const [usageRows] = await pool.query(
+        `
+        SELECT
+          l.id,
+          l.appointment_id,
+          l.visit_id,
+          l.item_code,
+          COALESCE(i.name, l.item_code) AS item_name,
+          l.qty_used,
+          l.created_at
+        FROM inventory_usage_logs l
+        LEFT JOIN inventory_items i ON i.id = l.item_id
+        WHERE l.item_id = ? OR l.item_code = ?
+        ORDER BY l.id DESC
+        LIMIT 25
+        `,
+        [item.id, item.item_code]
+      );
+
+      return res.json({ item, usage: usageRows || [] });
+    } catch (err) {
+      console.error("ADMIN INVENTORY DETAILS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load inventory item details" });
+    }
+  }
+);
+
 app.patch(
   `${ADMIN_BASE}/inventory/:itemCode`,
   authMiddleware,
@@ -5462,6 +6432,119 @@ app.get(
   }
 );
 
+app.get(
+  `${ADMIN_BASE}/revenue/analytics`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const days = Math.max(7, Math.min(365, Number(req.query.days || 30)));
+      const endDate = formatDateYYYYMMDD(new Date());
+      const startDate = addDaysYYYYMMDD(endDate, -(days - 1));
+
+      const [doctorRows] = await pool.query(
+        `
+        SELECT a.doctor_id,
+               u.full_name AS doctor_name,
+               COUNT(DISTINCT a.id) AS appointments,
+               COALESCE(SUM(i.amount),0) AS revenue
+        FROM appointments a
+        LEFT JOIN invoices i ON i.appointment_id = a.id
+        LEFT JOIN users u ON u.id = a.doctor_id
+        WHERE a.scheduled_date >= ? AND a.scheduled_date <= ?
+        GROUP BY a.doctor_id, u.full_name
+        ORDER BY revenue DESC
+        LIMIT 20
+        `,
+        [startDate, endDate]
+      );
+
+      const [procedureRows] = await pool.query(
+        `
+        SELECT ii.code AS procedure_code,
+               COUNT(*) AS line_count,
+               COALESCE(SUM(ii.amount),0) AS revenue
+        FROM invoice_items ii
+        JOIN invoices i ON i.id = ii.invoice_id
+        WHERE i.issue_date >= ? AND i.issue_date <= ?
+        GROUP BY ii.code
+        ORDER BY revenue DESC
+        LIMIT 20
+        `,
+        [startDate, endDate]
+      );
+
+      const [chairRows] = await pool.query(
+        `
+        SELECT DATE_FORMAT(scheduled_date, '%Y-%m-%d') AS day,
+               COUNT(*) AS booked_slots,
+               COALESCE(SUM(predicted_duration_min),0) AS booked_minutes
+        FROM appointments
+        WHERE scheduled_date >= ? AND scheduled_date <= ?
+        GROUP BY day
+        ORDER BY day ASC
+        `,
+        [startDate, endDate]
+      );
+
+      return res.json({
+        range: { startDate, endDate, days },
+        byDoctor: doctorRows || [],
+        byProcedure: procedureRows || [],
+        chairUtilization: chairRows || [],
+      });
+    } catch (err) {
+      console.error("ADMIN REVENUE ANALYTICS ERROR:", err);
+      return res.status(500).json({ byDoctor: [], byProcedure: [], chairUtilization: [] });
+    }
+  }
+);
+
+app.get(
+  `${ADMIN_BASE}/revenue/forecast`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (_req, res) => {
+    try {
+      const [rows] = await pool.query(
+        `
+        SELECT DATE_FORMAT(issue_date, '%Y-%m') AS ym,
+               COALESCE(SUM(amount),0) AS billed,
+               COALESCE(SUM(CASE WHEN status='Paid' THEN amount ELSE 0 END),0) AS paid
+        FROM invoices
+        WHERE issue_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+        GROUP BY ym
+        ORDER BY ym ASC
+        `
+      );
+      const series = rows || [];
+      const last3 = series.slice(-3);
+      const avgPaid =
+        last3.length > 0
+          ? last3.reduce((sum, r) => sum + Number(r.paid || 0), 0) / last3.length
+          : 0;
+      const trend =
+        last3.length >= 2 ? Number(last3[last3.length - 1].paid || 0) - Number(last3[last3.length - 2].paid || 0) : 0;
+      const nextMonthForecast = Math.max(0, avgPaid + trend * 0.45);
+      const confidence = Math.max(45, Math.min(92, Math.round(62 + Math.min(20, series.length * 3))));
+
+      return res.json({
+        horizon: "next_30_days",
+        confidence,
+        forecast: {
+          expectedRevenue: Number(nextMonthForecast.toFixed(2)),
+          trendDelta: Number(trend.toFixed(2)),
+          historicalAverage: Number(avgPaid.toFixed(2)),
+        },
+        series,
+      });
+    } catch (err) {
+      console.error("ADMIN REVENUE FORECAST ERROR:", err);
+      return res.status(500).json({ message: "Failed to compute forecast" });
+    }
+  }
+);
+
 // CASE TRACKING SUMMARY (UNCHANGED)
 app.get(
   `${ADMIN_BASE}/cases/tracking-summary`,
@@ -5584,7 +6667,7 @@ app.get(
         flagged: Number(r.risk_score ?? 0) >= 80,
       }));
 
-      res.json({ cases });
+      res.json({ cases, items: cases });
     } catch (err) {
       console.error("CASE TRACKING LIST HANDLER ERROR:", err);
       res.json({ cases: [], error: true });
@@ -5874,6 +6957,117 @@ app.get(
 );
 
 // ✅ NEW: DOCTOR mark appointment completed
+
+app.get(
+  `${DOCTOR_BASE}/appointments/:dbId`,
+  authMiddleware,
+  requireRole("Doctor"),
+  async (req, res) => {
+    try {
+      const dbId = Number(req.params.dbId);
+      const doctorId = req.user.id;
+      if (!Number.isFinite(dbId) || dbId <= 0) {
+        return res.status(400).json({ message: "Invalid appointment id" });
+      }
+
+      const [rows] = await pool.query(
+        `
+        SELECT
+          a.id, a.appointment_uid, a.patient_id, a.doctor_id, a.linked_case_id,
+          DATE_FORMAT(a.scheduled_date, '%Y-%m-%d') AS scheduled_date,
+          TIME_FORMAT(a.scheduled_time, '%H:%i:%s') AS scheduled_time,
+          a.type, a.status, NULL AS notes,
+          p.full_name AS patient_name, d.full_name AS doctor_name, c.case_uid
+        FROM appointments a
+        LEFT JOIN users p ON p.id = a.patient_id
+        LEFT JOIN users d ON d.id = a.doctor_id
+        LEFT JOIN cases c ON c.id = a.linked_case_id
+        WHERE a.id = ? AND a.doctor_id = ?
+        LIMIT 1
+        `,
+        [dbId, doctorId]
+      );
+      if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
+
+      const [usageRows] = await pool.query(
+        `
+        SELECT
+          l.id,
+          l.appointment_id,
+          l.visit_id,
+          l.item_code,
+          COALESCE(i.name, l.item_code) AS item_name,
+          l.qty_used,
+          l.created_at
+        FROM inventory_usage_logs l
+        LEFT JOIN inventory_items i ON i.id = l.item_id
+        WHERE l.appointment_id = ?
+        ORDER BY l.id DESC
+        LIMIT 20
+        `,
+        [dbId]
+      );
+      const [invoiceRows] = await pool.query(
+        `
+        SELECT id, amount, status, issue_date, paid_date
+        FROM invoices
+        WHERE appointment_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        `,
+        [dbId]
+      );
+
+      return res.json({
+        item: {
+          ...rows[0],
+          consumables: usageRows || [],
+          invoice: invoiceRows?.[0] || null,
+        },
+      });
+    } catch (err) {
+      console.error("DOCTOR APPOINTMENT DETAILS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load appointment details" });
+    }
+  }
+);
+
+
+app.patch(
+  `${DOCTOR_BASE}/appointments/:dbId`,
+  authMiddleware,
+  requireRole("Doctor"),
+  async (req, res) => {
+    try {
+      const dbId = Number(req.params.dbId);
+      const doctorId = req.user.id;
+      const status = String(req.body?.status || "").trim();
+      if (!Number.isFinite(dbId) || dbId <= 0) return res.status(400).json({ message: "Invalid appointment id" });
+      if (!status) return res.status(400).json({ message: "Status is required" });
+      const [existingRows] = await pool.query(
+        `SELECT status FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1`,
+        [dbId, doctorId]
+      );
+      if (!existingRows.length) return res.status(404).json({ message: "Appointment not found" });
+      const currentStatus = String(existingRows[0].status || "").trim().toLowerCase();
+      const nextStatus = status.toLowerCase();
+      const isTerminalCurrent =
+        currentStatus === "completed" || currentStatus === "cancelled" || currentStatus === "no-show";
+      if (isTerminalCurrent && currentStatus !== nextStatus) {
+        return res.status(409).json({
+          message: "Appointment is in terminal state and cannot be changed",
+          status: existingRows[0].status,
+        });
+      }
+      await pool.query(`UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? AND doctor_id = ?`, [status, dbId, doctorId]);
+      return res.json({ ok: true, id: dbId, status });
+    } catch (err) {
+      console.error("DOCTOR APPOINTMENT STATUS UPDATE ERROR:", err);
+      return res.status(500).json({ message: "Failed to update appointment status" });
+    }
+  }
+);
+
 app.patch(
   `${DOCTOR_BASE}/appointments/:dbId/complete`,
   authMiddleware,
@@ -6025,7 +7219,7 @@ app.get(
         updatedAt: r.updatedAt || r.updated_at || null,
       }));
 
-      res.json({ cases });
+      res.json({ cases, items: cases });
     } catch (err) {
       console.error("DOCTOR CASES ERROR:", err);
       res.status(500).json({
@@ -6333,6 +7527,7 @@ app.get(
       const titleCol = pickCol(cols, ["title"]);
       const bodyCol = pickCol(cols, ["body", "message", "details"]);
       const createdCol = pickCol(cols, ["created_at", "updated_at"]);
+      const actorCol = pickCol(cols, ["actor", "actor_name", "actor_role", "created_by", "created_by_user_id"]);
 
       if (!caseCol) return res.json({ timeline: [] });
 
@@ -6344,6 +7539,7 @@ app.get(
           ${eventCol ? `${eventCol} AS event_type,` : "NULL AS event_type,"}
           ${titleCol ? `${titleCol} AS title,` : "NULL AS title,"}
           ${bodyCol ? `${bodyCol} AS body,` : "NULL AS body,"}
+          ${actorCol ? `${actorCol} AS actor,` : "NULL AS actor,"}
           ${createdCol ? `${createdCol} AS created_at` : "NULL AS created_at"}
         FROM case_timeline
         WHERE ${caseCol} = ?
@@ -6608,13 +7804,73 @@ app.post(
           .filter((v) => v !== null);
       }
 
-      await pool.query(
-        `INSERT INTO agent_events (event_type, payload_json, status, available_at, created_by_user_id, created_at)
-         VALUES ('CaseGenerateSummary', JSON_OBJECT('caseDbId', ?, 'caseId', ?, 'source', 'doctor_ui'), 'NEW', NOW(), ?, NOW())`,
-        [caseId, caseId, req.user?.id || null]
+      const [existingRows] = await pool.query(
+        `
+        SELECT id, status, updated_at
+        FROM agent_events
+        WHERE event_type = 'CaseGenerateSummary'
+          AND status IN ('NEW', 'PROCESSING')
+          AND (
+            (JSON_VALID(payload_json) AND (
+              JSON_EXTRACT(payload_json, '$.caseDbId') = CAST(? AS JSON)
+              OR JSON_EXTRACT(payload_json, '$.caseId') = CAST(? AS JSON)
+            ))
+            OR payload_json LIKE ?
+            OR payload_json LIKE ?
+          )
+        ORDER BY id DESC
+        LIMIT 1
+        `,
+        [caseId, caseId, `%"caseDbId":${caseId}%`, `%"caseId":${caseId}%`]
       );
+      const existing = Array.isArray(existingRows) ? existingRows[0] : null;
+      if (existing) {
+        return res.status(409).json({
+          ok: true,
+          queued: false,
+          message: "Summary generation already in progress for this case",
+          existing: {
+            eventId: Number(existing.id || 0) || null,
+            status: String(existing.status || ""),
+            updatedAt: existing.updated_at || null,
+          },
+        });
+      }
 
-      return res.json({ ok: true, queued: true });
+      await enqueueEventCompat({
+        eventType: "CaseGenerateSummary",
+        payload: {
+          caseDbId: caseId,
+          caseId,
+          source: "doctor_ui",
+          entityType: "cases",
+          entityId: caseId,
+        },
+        createdByUserId: req.user?.id || null,
+      });
+
+      const [evRows] = await pool.query(
+        `
+        SELECT id
+        FROM agent_events
+        WHERE event_type = 'CaseGenerateSummary'
+          AND status IN ('NEW', 'PROCESSING')
+          AND (
+            (JSON_VALID(payload_json) AND (
+              JSON_EXTRACT(payload_json, '$.caseDbId') = CAST(? AS JSON)
+              OR JSON_EXTRACT(payload_json, '$.caseId') = CAST(? AS JSON)
+            ))
+            OR payload_json LIKE ?
+            OR payload_json LIKE ?
+          )
+        ORDER BY id DESC
+        LIMIT 1
+        `,
+        [caseId, caseId, `%"caseDbId":${caseId}%`, `%"caseId":${caseId}%`]
+      );
+      const eventId = Number(evRows?.[0]?.id || 0) || null;
+
+      return res.json({ ok: true, queued: true, eventId });
     } catch (err) {
       console.error("CASE SUMMARY REQUEST ERROR:", err);
       return res.status(500).json({ message: "Failed to request summary" });
@@ -6790,6 +8046,151 @@ app.get(
   }
 );
 
+app.get(
+  `${DOCTOR_BASE}/cases/:dbId/documents`,
+  authMiddleware,
+  requireRole("Doctor"),
+  async (req, res) => {
+    try {
+      const dbId = Number(req.params.dbId);
+      if (!Number.isFinite(dbId) || dbId <= 0) {
+        return res.status(400).json({ message: "Invalid case id" });
+      }
+      const doctorId = req.user.id;
+      const [caseRows] = await pool.query(
+        `SELECT id, case_uid, stage, doctor_id FROM cases WHERE id = ? AND doctor_id = ? LIMIT 1`,
+        [dbId, doctorId]
+      );
+      if (!caseRows.length) return res.status(404).json({ message: "Case not found" });
+
+      let docs = [];
+      if (await tableExists("case_documents")) {
+        const [docRows] = await pool.query(
+          `
+          SELECT id, doc_type, content, status, created_by_agent_event_id, created_at, updated_at
+          FROM case_documents
+          WHERE case_id = ?
+          ORDER BY updated_at DESC, id DESC
+          `,
+          [dbId]
+        );
+        docs = docRows || [];
+      }
+
+      if (!docs.length && (await tableExists("case_summaries"))) {
+        const [sumRows] = await pool.query(
+          `
+          SELECT id, summary, recommendation, status, created_at
+          FROM case_summaries
+          WHERE case_id = ?
+          ORDER BY id DESC
+          LIMIT 1
+          `,
+          [dbId]
+        );
+        if (sumRows.length) {
+          const s = sumRows[0];
+          docs = [
+            {
+              id: `virtual-clinical-${s.id}`,
+              doc_type: "clinical_summary",
+              content: s.summary || "",
+              status: s.status === "APPROVED" ? "APPROVED" : "READY",
+              created_by_agent_event_id: null,
+              created_at: s.created_at,
+              updated_at: s.created_at,
+            },
+            {
+              id: `virtual-patient-${s.id}`,
+              doc_type: "patient_explanation",
+              content: s.recommendation || "Follow the doctor-provided treatment plan and return for review.",
+              status: s.status === "APPROVED" ? "APPROVED" : "DRAFT",
+              created_by_agent_event_id: null,
+              created_at: s.created_at,
+              updated_at: s.created_at,
+            },
+          ];
+        }
+      }
+
+      return res.json({ caseId: dbId, items: docs });
+    } catch (err) {
+      console.error("DOCTOR CASE DOCUMENTS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load case documents" });
+    }
+  }
+);
+
+app.get(
+  `${DOCTOR_BASE}/appointments/:id/recommend-next-stage`,
+  authMiddleware,
+  requireRole("Doctor"),
+  async (req, res) => {
+    try {
+      const appointmentId = Number(req.params.id);
+      if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
+        return res.status(400).json({ message: "Invalid appointment id" });
+      }
+      const [rows] = await pool.query(
+        `
+        SELECT a.id, a.doctor_id, a.patient_id, a.linked_case_id,
+               DATE_FORMAT(a.scheduled_date, '%Y-%m-%d') AS scheduled_date,
+               TIME_FORMAT(a.scheduled_time, '%H:%i:%s') AS scheduled_time,
+               a.predicted_duration_min, a.type,
+               c.stage, c.next_review_date
+        FROM appointments a
+        LEFT JOIN cases c ON c.id = a.linked_case_id
+        WHERE a.id = ? AND a.doctor_id = ?
+        LIMIT 1
+        `,
+        [appointmentId, req.user.id]
+      );
+      if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
+      const r = rows[0];
+
+      const currentDate = new Date(`${r.scheduled_date}T${r.scheduled_time || "10:00:00"}`);
+      const healingDays = r.stage === "IN_TREATMENT" ? 7 : r.stage === "WAITING_ON_PATIENT" ? 3 : 5;
+      const recommendedStart = new Date(currentDate.getTime() + healingDays * 24 * 60 * 60 * 1000);
+      recommendedStart.setHours(10, 0, 0, 0);
+      const duration = Number(r.predicted_duration_min || 30) || 30;
+      const recommendedEnd = new Date(recommendedStart.getTime() + duration * 60 * 1000);
+
+      if (await tableExists("appointment_recommendations")) {
+        await pool.query(
+          `
+          INSERT INTO appointment_recommendations
+            (appointment_id, doctor_id, recommended_start, recommended_end, reason, confidence)
+          VALUES (?, ?, ?, ?, ?, ?)
+          `,
+          [
+            appointmentId,
+            req.user.id,
+            formatDateTime(recommendedStart),
+            formatDateTime(recommendedEnd),
+            "Treatment-linked scheduling suggestion",
+            72,
+          ]
+        );
+      }
+
+      return res.json({
+        appointmentId,
+        linkedCaseId: r.linked_case_id || null,
+        recommendation: {
+          recommendedStart: formatDateTime(recommendedStart),
+          recommendedEnd: formatDateTime(recommendedEnd),
+          predictedDurationMin: duration,
+          confidence: 72,
+          reason: "Based on current case stage and expected healing window.",
+        },
+      });
+    } catch (err) {
+      console.error("DOCTOR NEXT STAGE RECOMMENDATION ERROR:", err);
+      return res.status(500).json({ message: "Failed to generate recommendation" });
+    }
+  }
+);
+
 // DOCTOR: approve case summary
 app.post(
   `${DOCTOR_BASE}/cases/:caseDbId/summaries/:summaryId/approve`,
@@ -6817,18 +8218,344 @@ app.post(
       const [caseRows] = await pool.query(`SELECT id FROM cases WHERE id = ? AND doctor_id = ? LIMIT 1`, [caseId, doctorId]);
       if (!caseRows.length) return res.status(404).json({ message: "Case not found" });
 
-      // Update summary status
-      const [result] = await pool.query(
-        `UPDATE case_summaries SET ${statusCol} = 'APPROVED' WHERE id = ? AND ${caseCol} = ?`,
+      const approvedByCol = cols.has("approved_by_user_id") ? "approved_by_user_id" : null;
+      const approvedAtCol = cols.has("approved_at") ? "approved_at" : null;
+
+      const [beforeRows] = await pool.query(
+        `SELECT id, ${statusCol} AS status, summary, recommendation, confidence, created_at
+         FROM case_summaries
+         WHERE id = ? AND ${caseCol} = ?
+         LIMIT 1`,
         [summaryId, caseId]
+      );
+      if (!beforeRows.length) return res.status(404).json({ message: "Summary not found" });
+
+      const setClauses = [`${statusCol} = 'APPROVED'`];
+      const setVals = [];
+      if (approvedByCol) {
+        setClauses.push(`${approvedByCol} = ?`);
+        setVals.push(doctorId);
+      }
+      if (approvedAtCol) {
+        setClauses.push(`${approvedAtCol} = NOW()`);
+      }
+
+      const [result] = await pool.query(
+        `UPDATE case_summaries SET ${setClauses.join(", ")} WHERE id = ? AND ${caseCol} = ?`,
+        [...setVals, summaryId, caseId]
       );
 
       if (!result.affectedRows) return res.status(404).json({ message: "Summary not found" });
+
+      try {
+        await pool.query(
+          `INSERT INTO audit_logs
+             (actor_user_id, actor_role, entity_type, entity_id, action, before_json, after_json, meta_json)
+           VALUES (?, ?, 'case_summary', ?, 'APPROVE', ?, ?, ?)`,
+          [
+            doctorId,
+            "Doctor",
+            summaryId,
+            JSON.stringify(beforeRows[0] || {}),
+            JSON.stringify({ id: summaryId, status: "APPROVED", approvedByUserId: doctorId }),
+            JSON.stringify({ caseId, route: "doctor_summary_approve" }),
+          ]
+        );
+      } catch (auditErr) {
+        console.error("APPROVE SUMMARY audit insert failed:", auditErr?.message || auditErr);
+      }
 
       return res.json({ ok: true });
     } catch (err) {
       console.error("APPROVE SUMMARY ERROR:", err);
       return res.status(500).json({ message: "Failed to approve summary" });
+    }
+  }
+);
+
+// ✅ ADMIN: INVENTORY USAGE (traceability)
+app.get(
+  `${ADMIN_BASE}/inventory/analytics`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      if (!(await tableExists("inventory_usage_logs"))) {
+        return res.json({ byDoctor: [], byProcedure: [], anomalies: [] });
+      }
+
+      const [byDoctor] = await pool.query(
+        `
+        SELECT COALESCE(u.full_name, 'Unknown') AS doctor_name,
+               l.doctor_id,
+               l.item_code,
+               SUM(COALESCE(l.qty_used, 0)) AS qty_used,
+               COUNT(*) AS usage_count
+        FROM inventory_usage_logs l
+        LEFT JOIN users u ON u.id = l.doctor_id
+        GROUP BY l.doctor_id, l.item_code
+        ORDER BY qty_used DESC
+        LIMIT 30
+        `
+      );
+
+      const [byProcedure] = await pool.query(
+        `
+        SELECT vp.procedure_code,
+               l.item_code,
+               SUM(COALESCE(l.qty_used,0)) AS qty_used
+        FROM inventory_usage_logs l
+        LEFT JOIN visits v ON v.id = l.visit_id
+        LEFT JOIN visit_procedures vp ON vp.visit_id = v.id
+        GROUP BY vp.procedure_code, l.item_code
+        ORDER BY qty_used DESC
+        LIMIT 30
+        `
+      );
+
+      let anomalies = [];
+      if (await tableExists("inventory_anomalies")) {
+        const [anomalyRows] = await pool.query(
+          `
+          SELECT id, item_code, doctor_id, procedure_code, anomaly_type, severity, score, meta_json, created_at
+          FROM inventory_anomalies
+          ORDER BY id DESC
+          LIMIT 25
+          `
+        );
+        anomalies = anomalyRows || [];
+      }
+
+      if (!anomalies.length && Array.isArray(byDoctor) && byDoctor.length) {
+        const top = byDoctor.slice(0, 5).filter((r) => Number(r.qty_used || 0) > 10);
+        anomalies = top.map((r, idx) => ({
+          id: `derived-${idx + 1}`,
+          item_code: r.item_code,
+          doctor_id: r.doctor_id,
+          procedure_code: null,
+          anomaly_type: "HIGH_USAGE_PATTERN",
+          severity: Number(r.qty_used || 0) > 20 ? "HIGH" : "MEDIUM",
+          score: Number(r.qty_used || 0),
+          created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+          meta_json: JSON.stringify({ usageCount: Number(r.usage_count || 0), source: "derived_runtime" }),
+        }));
+      }
+
+      return res.json({
+        byDoctor: byDoctor || [],
+        byProcedure: byProcedure || [],
+        anomalies,
+      });
+    } catch (err) {
+      console.error("ADMIN INVENTORY ANALYTICS ERROR:", err);
+      return res.status(500).json({ byDoctor: [], byProcedure: [], anomalies: [] });
+    }
+  }
+);
+
+app.get(
+  `${ADMIN_BASE}/inventory/usage`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      if (!(await tableExists("inventory_usage_logs"))) {
+        return res.json({ items: [] });
+      }
+      const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
+      const [rows] = await pool.query(
+        `
+        SELECT l.id,
+               l.appointment_id,
+               l.visit_id,
+               l.item_id,
+               l.item_code,
+               l.qty_used,
+               l.source,
+               l.source_type,
+               l.source_ref_id,
+               l.event_id,
+               l.created_at,
+               i.name AS item_name
+        FROM inventory_usage_logs l
+        LEFT JOIN inventory_items i ON i.id = l.item_id
+        ORDER BY l.id DESC
+        LIMIT ?
+        `,
+        [limit]
+      );
+      return res.json({ items: rows || [] });
+    } catch (err) {
+      console.error("ADMIN INVENTORY USAGE ERROR:", err);
+      return res.json({ items: [], error: true });
+    }
+  }
+);
+
+// CASE AGENT STATUS (minimal visibility endpoint)
+app.get(
+  `/api/cases/:id/agent-status`,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const caseId = Number(req.params.id);
+      if (!Number.isFinite(caseId) || caseId <= 0) {
+        return res.status(400).json({ message: "Invalid case id" });
+      }
+
+      const role = String(req.user?.role || "");
+      if (role === "Doctor") {
+        const [rows] = await pool.query(`SELECT id FROM cases WHERE id = ? AND doctor_id = ? LIMIT 1`, [caseId, req.user.id]);
+        if (!rows.length) return res.status(404).json({ message: "Case not found" });
+      } else if (role === "Patient") {
+        const [rows] = await pool.query(`SELECT id FROM cases WHERE id = ? AND patient_id = ? LIMIT 1`, [caseId, req.user.id]);
+        if (!rows.length) return res.status(404).json({ message: "Case not found" });
+      } else if (role !== "Admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const recentRows = await safeQuery(
+        "CASE AGENT STATUS",
+        `SELECT id, event_type, status, last_error, created_at, updated_at, payload_json, created_by_user_id
+         FROM agent_events
+         WHERE event_type LIKE 'Case%' OR event_type IN ('AppointmentCompleted','AppointmentCreated')
+         ORDER BY id DESC
+         LIMIT 200`,
+        []
+      );
+
+      const extractCaseId = (payloadJson) => {
+        try {
+          const payload = typeof payloadJson === "string" ? JSON.parse(payloadJson) : payloadJson || {};
+          const v = Number(payload.caseDbId || payload.caseId || payload.linkedCaseId || 0);
+          return Number.isFinite(v) ? v : 0;
+        } catch {
+          return 0;
+        }
+      };
+
+      const related = (recentRows || []).filter((r) => extractCaseId(r.payload_json) === caseId);
+      const latest = related[0] || null;
+
+      return res.json({
+        caseId,
+        latest: latest
+          ? {
+              eventId: latest.id,
+              eventType: latest.event_type,
+              status: latest.status,
+              updatedAt: latest.updated_at,
+              lastError: latest.last_error || null,
+              actor: latest.created_by_user_id ? `user:${latest.created_by_user_id}` : null,
+            }
+          : null,
+        eventType: latest?.event_type || "",
+        status: latest?.status || "",
+        updatedAt: latest?.updated_at || null,
+        eventId: latest?.id || null,
+        lastError: latest?.last_error || null,
+        recent: related.slice(0, 10).map((r) => ({
+          eventId: r.id,
+          eventType: r.event_type,
+          status: r.status,
+          updatedAt: r.updated_at,
+          lastError: r.last_error || null,
+          actor: r.created_by_user_id ? `user:${r.created_by_user_id}` : null,
+        })),
+      });
+    } catch (err) {
+      console.error("CASE AGENT STATUS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load case agent status" });
+    }
+  }
+);
+
+// APPOINTMENT AGENT STATUS (automation visibility for admin/doctor/patient)
+app.get(
+  `/api/appointments/:id/agent-status`,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const appointmentId = Number(req.params.id);
+      if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
+        return res.status(400).json({ message: "Invalid appointment id" });
+      }
+
+      const role = String(req.user?.role || "");
+      if (role === "Doctor") {
+        const [rows] = await pool.query(
+          `SELECT id FROM appointments WHERE id = ? AND doctor_id = ? LIMIT 1`,
+          [appointmentId, req.user.id]
+        );
+        if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
+      } else if (role === "Patient") {
+        const [rows] = await pool.query(
+          `SELECT id FROM appointments WHERE id = ? AND patient_id = ? LIMIT 1`,
+          [appointmentId, req.user.id]
+        );
+        if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
+      } else if (role !== "Admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const [rows] = await pool.query(
+        `
+        SELECT id, event_type, status, updated_at, created_at, last_error
+        FROM agent_events
+        WHERE (
+          payload_json LIKE ?
+          OR payload_json LIKE ?
+          OR payload_json LIKE ?
+          OR payload_json LIKE ?
+        )
+          AND (
+            event_type LIKE 'Appointment%'
+            OR event_type LIKE 'Inventory%'
+            OR event_type LIKE 'Revenue%'
+            OR event_type LIKE 'Case%'
+          )
+        ORDER BY id DESC
+        LIMIT 20
+        `,
+        [
+          `%\"appointmentId\":${appointmentId}%`,
+          `%\"appointmentId\":\"${appointmentId}\"%`,
+          `%\"appointment_id\":${appointmentId}%`,
+          `%\"appointment_id\":\"${appointmentId}\"%`,
+        ]
+      );
+
+      const latest = rows?.[0] || null;
+      const status = String(latest?.status || "");
+      const isRunning = status === "NEW" || status === "PROCESSING";
+      return res.json({
+        appointmentId,
+        latest: latest
+          ? {
+              eventId: latest.id,
+              eventType: latest.event_type,
+              status: latest.status,
+              updatedAt: latest.updated_at,
+              lastError: latest.last_error || null,
+            }
+          : null,
+        eventId: latest?.id || null,
+        eventType: latest?.event_type || null,
+        status: latest?.status || null,
+        updatedAt: latest?.updated_at || null,
+        lastError: latest?.last_error || null,
+        isRunning,
+        recent: (rows || []).map((r) => ({
+          eventId: r.id,
+          eventType: r.event_type,
+          status: r.status,
+          updatedAt: r.updated_at,
+          lastError: r.last_error || null,
+        })),
+      });
+    } catch (err) {
+      console.error("APPOINTMENT AGENT STATUS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load appointment agent status" });
     }
   }
 );
@@ -7190,6 +8917,75 @@ app.get(
   }
 );
 
+
+app.get(
+  `${ADMIN_BASE}/invoices`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (_req, res) => {
+    try {
+      const [rows] = await pool.query(
+        `
+        SELECT i.id, i.patient_id, i.appointment_id, i.issue_date, i.amount, i.status, i.paid_date, i.created_at,
+               u.full_name AS patient_name
+        FROM invoices i
+        LEFT JOIN users u ON u.id = i.patient_id
+        ORDER BY i.created_at DESC
+        LIMIT 200
+        `
+      );
+      return res.json({ items: rows || [] });
+    } catch (err) {
+      console.error("ADMIN INVOICES LIST ERROR:", err);
+      return res.status(500).json({ items: [], message: "Failed to load invoices" });
+    }
+  }
+);
+
+app.get(
+  `${ADMIN_BASE}/invoices/:invoiceId`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const invoiceId = Number(req.params.invoiceId);
+      if (!Number.isFinite(invoiceId) || invoiceId <= 0) {
+        return res.status(400).json({ message: "Invalid invoice id" });
+      }
+
+      const [headRows] = await pool.query(
+        `
+        SELECT i.id, i.patient_id, i.appointment_id, i.issue_date, i.amount, i.status, i.paid_date, i.created_at,
+               u.full_name AS patient_name, a.appointment_uid, c.case_uid
+        FROM invoices i
+        LEFT JOIN users u ON u.id = i.patient_id
+        LEFT JOIN appointments a ON a.id = i.appointment_id
+        LEFT JOIN cases c ON c.id = a.linked_case_id
+        WHERE i.id = ?
+        LIMIT 1
+        `,
+        [invoiceId]
+      );
+      if (!headRows.length) return res.status(404).json({ message: "Invoice not found" });
+
+      const [itemRows] = await pool.query(
+        `
+        SELECT id, invoice_id, code, qty, unit_price, amount, item_type
+        FROM invoice_items
+        WHERE invoice_id = ?
+        ORDER BY id ASC
+        `,
+        [invoiceId]
+      );
+
+      return res.json({ item: headRows[0], items: itemRows || [] });
+    } catch (err) {
+      console.error("ADMIN INVOICE DETAILS ERROR:", err);
+      return res.status(500).json({ message: "Failed to load invoice details" });
+    }
+  }
+);
+
 // ADMIN: mark invoice paid (simple toggle)
 app.post(
   `${ADMIN_BASE}/invoices/:invoiceId/pay`,
@@ -7219,28 +9015,398 @@ app.post(
     }
   }
 );
-// PROXY: ML Assistant (Python service)
+function detectAssistantIntent(message = "") {
+  const q = String(message || "").toLowerCase().trim();
+  if (!q) return "fallback";
+  if (/^(hi|hello|hey|yo|good morning|good evening)\b/.test(q)) return "greeting";
+  if (/\b(bye|goodbye|see you|cya)\b/.test(q)) return "farewell";
+  if (/\b(thanks|thank you)\b/.test(q)) return "thanks";
+  if (/\b(what is this|what is dentraos|explain|help|how to use)\b/.test(q)) return "explain";
+  if (/(appointment|appointments|schedule|slot|today)/.test(q)) return "appointments";
+  if (/(pending summaries|pending summary|summary pending|awaiting summary|awaiting approval)/.test(q))
+    return "case_pending_summaries";
+  if (q.includes("pending") && q.includes("summar"))
+    return "case_pending_summaries";
+  if (/(case stages|case stage|cases|case summary|timeline|treatment)/.test(q)) return "cases";
+  if (/(inventory|low stock|stock|usage|purchase order|po\b)/.test(q)) return "inventory";
+  if (/(revenue|invoice|invoices|billing|report|outstanding)/.test(q)) return "revenue";
+  return "fallback";
+}
+
+function assistantSuggestionsByRole(role = "") {
+  const base = [
+    "Show today's appointments",
+    "Show case stages",
+    "Check inventory alerts",
+    "View revenue report",
+  ];
+  if (isPatientRole(role)) {
+    return ["My upcoming appointments", "My case stage", "My invoices", "What can you do?"];
+  }
+  if (isDoctorRole(role)) {
+    return ["Show today's appointments", "Show case stages", "My inventory usage", "How do I generate case summary?"];
+  }
+  return base;
+}
+
+function nextSuggestionsByIntent(intent, role) {
+  if (intent === "appointments") {
+    return ["Show case stages", "Pending summaries", "Check inventory alerts"];
+  }
+  if (intent === "cases") {
+    return ["Pending summaries", "Show timeline updates", "Show today's appointments"];
+  }
+  if (intent === "case_pending_summaries") {
+    return ["Show case stages", "Show timeline updates", "How do I approve a summary?"];
+  }
+  if (intent === "inventory") {
+    return ["My inventory usage", "Show case stages", "View revenue report"];
+  }
+  if (intent === "revenue") {
+    return ["Outstanding invoices", "Show today's appointments", "Show case stages"];
+  }
+  return assistantSuggestionsByRole(role);
+}
+
+function isAdminRole(role) {
+  return String(role || "").toLowerCase() === "admin";
+}
+function isDoctorRole(role) {
+  return String(role || "").toLowerCase() === "doctor";
+}
+function isPatientRole(role) {
+  return String(role || "").toLowerCase() === "patient";
+}
+
 app.post("/api/assistant/message", requireAuth, async (req, res) => {
   try {
-    const pyUrl = process.env.ASSISTANT_URL || "http://127.0.0.1:8010/assistant/message";
-    const r = await fetch(pyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // forward same JWT
-        Authorization: req.headers.authorization || "",
-      },
-      body: JSON.stringify({
-        context: req.body?.context || "general",
-        message: req.body?.message || "",
-        meta: req.body?.meta || {},
-      }),
-    });
+    const message = String(req.body?.message || "").trim();
+    if (!message) {
+      return res.status(400).json({ message: "Message is required" });
+    }
+    if (message.length > 600) {
+      return res.status(400).json({ message: "Message too long" });
+    }
 
-    const text = await r.text();
-    res.status(r.status).type(r.headers.get("content-type") || "application/json").send(text);
+    const userId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || "");
+    const clinicId = req.user?.clinic_id || req.user?.clinicId || null;
+    if (!userId || !role) {
+      return res.status(401).json({ message: "Invalid user context" });
+    }
+
+    const intent = detectAssistantIntent(message);
+    const headersMeta = { intent, userId, role, clinicId };
+    const suggestions = nextSuggestionsByIntent(intent, role);
+
+    if (intent === "greeting") {
+      return res.json({
+        reply: "Hello. I can help with appointments, case stages, inventory status, and revenue snapshots.",
+        cards: [],
+        suggestions,
+        meta: { intent, counts: {}, entityIds: [] },
+      });
+    }
+
+    if (intent === "farewell") {
+      return res.json({
+        reply: "Got it. I am here whenever you need updates on appointments, cases, inventory, or revenue.",
+        cards: [],
+        suggestions,
+        meta: { intent, counts: {}, entityIds: [] },
+      });
+    }
+
+    if (intent === "thanks") {
+      return res.json({
+        reply: "You're welcome. You can ask for live clinic data anytime.",
+        cards: [],
+        suggestions,
+        meta: { intent, counts: {}, entityIds: [] },
+      });
+    }
+
+    if (intent === "explain") {
+      return res.json({
+        reply:
+          "DentraOS Assistant is a role-scoped data assistant. It reads live clinic data and answers only within your access level. Try a quick action chip below.",
+        cards: [],
+        suggestions,
+        meta: { intent, counts: {}, entityIds: [] },
+      });
+    }
+
+    if (intent === "appointments") {
+      let sql = `
+        SELECT a.id, a.appointment_code, a.scheduled_date, a.scheduled_time, a.status,
+               p.full_name AS patient_name, d.full_name AS doctor_name
+        FROM appointments a
+        LEFT JOIN users p ON p.id = a.patient_id
+        LEFT JOIN users d ON d.id = a.doctor_id
+        WHERE a.scheduled_date = CURDATE()
+      `;
+      const params = [];
+      if (isDoctorRole(role)) {
+        sql += " AND a.doctor_id = ? ";
+        params.push(userId);
+      } else if (isPatientRole(role)) {
+        sql += " AND a.patient_id = ? ";
+        params.push(userId);
+      }
+      sql += " ORDER BY a.scheduled_time ASC LIMIT 8";
+      const [rows] = await pool.query(sql, params);
+      const items = Array.isArray(rows) ? rows : [];
+      const reply =
+        items.length > 0
+          ? `Found ${items.length} appointment(s) for today.`
+          : "No appointments found for today.";
+
+      if (process.env.NODE_ENV !== "production") {
+        console.log("ASSISTANT DEBUG", { ...headersMeta, count: items.length });
+      }
+      return res.json({
+        reply,
+        cards: [
+          {
+            type: "appointments",
+            title: "Today's appointments",
+            rows: items,
+          },
+        ],
+        meta: {
+          intent,
+          counts: { appointments: items.length },
+          entityIds: items.map((r) => r.id),
+        },
+        suggestions,
+      });
+    }
+
+    if (intent === "case_pending_summaries") {
+      let sql = `
+        SELECT cs.id, cs.case_id, cs.status, cs.created_at, c.case_uid, c.stage
+        FROM case_summaries cs
+        JOIN cases c ON c.id = cs.case_id
+        WHERE cs.status = 'PENDING_REVIEW'
+      `;
+      const params = [];
+      if (isDoctorRole(role)) {
+        sql += " AND c.doctor_id = ? ";
+        params.push(userId);
+      } else if (isPatientRole(role)) {
+        sql += " AND c.patient_id = ? ";
+        params.push(userId);
+      }
+      sql += " ORDER BY cs.created_at DESC LIMIT 8";
+      const [rows] = await pool.query(sql, params);
+      const items = Array.isArray(rows) ? rows : [];
+      return res.json({
+        reply:
+          items.length > 0
+            ? `Found ${items.length} pending summary review item(s).`
+            : "No pending summaries found right now.",
+        cards: [
+          {
+            type: "cases_pending",
+            title: "Pending summaries",
+            rows: items,
+          },
+        ],
+        meta: {
+          intent,
+          counts: { pendingSummaries: items.length },
+          entityIds: items.map((r) => r.id),
+        },
+        suggestions: nextSuggestionsByIntent("case_pending_summaries", role),
+      });
+    }
+
+    if (intent === "cases") {
+      let sql = `
+        SELECT c.id, c.case_uid, c.stage, c.updated_at, c.case_type,
+               p.full_name AS patient_name, d.full_name AS doctor_name
+        FROM cases c
+        LEFT JOIN users p ON p.id = c.patient_id
+        LEFT JOIN users d ON d.id = c.doctor_id
+        WHERE 1=1
+      `;
+      const params = [];
+      if (isDoctorRole(role)) {
+        sql += " AND c.doctor_id = ? ";
+        params.push(userId);
+      } else if (isPatientRole(role)) {
+        sql += " AND c.patient_id = ? ";
+        params.push(userId);
+      }
+      sql += " ORDER BY c.updated_at DESC LIMIT 8";
+      const [rows] = await pool.query(sql, params);
+      const items = Array.isArray(rows) ? rows : [];
+      const reply =
+        items.length > 0
+          ? `I found ${items.length} recent case(s) with current stages.`
+          : "No cases found in your scope yet.";
+      if (process.env.NODE_ENV !== "production") {
+        console.log("ASSISTANT DEBUG", { ...headersMeta, count: items.length });
+      }
+      return res.json({
+        reply,
+        cards: [
+          {
+            type: "cases",
+            title: "Case stages",
+            rows: items,
+          },
+        ],
+        meta: {
+          intent,
+          counts: { cases: items.length },
+          entityIds: items.map((r) => r.id),
+        },
+        suggestions,
+      });
+    }
+
+    if (intent === "inventory") {
+      if (isPatientRole(role)) {
+        return res.json({
+          reply: "I can’t access clinic inventory from a patient account.",
+          cards: [],
+          suggestions,
+          meta: { intent, counts: { items: 0 }, entityIds: [] },
+        });
+      }
+
+      const [lowStockRows] = await pool.query(
+        `
+        SELECT id, item_code, name, stock, reorder_threshold, status, updated_at
+        FROM inventory_items
+        WHERE stock <= reorder_threshold
+        ORDER BY (reorder_threshold - stock) DESC, updated_at DESC
+        LIMIT 8
+        `
+      );
+      let usageSql = `
+        SELECT l.id, l.item_id, l.item_code, l.qty_used, l.created_at, i.name AS item_name
+        FROM inventory_usage_logs l
+        LEFT JOIN inventory_items i ON i.id = l.item_id
+      `;
+      const usageParams = [];
+      if (isDoctorRole(role)) {
+        usageSql += `
+          LEFT JOIN appointments a ON a.id = l.appointment_id
+          WHERE a.doctor_id = ?
+        `;
+        usageParams.push(userId);
+      }
+      usageSql += " ORDER BY l.created_at DESC LIMIT 8";
+      const [usageRows] = await pool.query(usageSql, usageParams);
+      const lowItems = Array.isArray(lowStockRows) ? lowStockRows : [];
+      const usages = Array.isArray(usageRows) ? usageRows : [];
+      const reply =
+        lowItems.length > 0
+          ? `There are ${lowItems.length} low-stock item(s). I also pulled recent usage logs.`
+          : "No low-stock items right now. Recent usage is shown below.";
+      if (process.env.NODE_ENV !== "production") {
+        console.log("ASSISTANT DEBUG", {
+          ...headersMeta,
+          lowStockCount: lowItems.length,
+          usageCount: usages.length,
+        });
+      }
+      return res.json({
+        reply,
+        cards: [
+          { type: "inventory", title: "Low stock", rows: lowItems },
+          { type: "inventory_usage", title: "Recent usage", rows: usages },
+        ],
+        meta: {
+          intent,
+          counts: { lowStock: lowItems.length, usage: usages.length },
+          entityIds: [...lowItems.map((r) => r.id), ...usages.map((r) => r.id)],
+        },
+        suggestions,
+      });
+    }
+
+    if (intent === "revenue") {
+      if (!isAdminRole(role) && !isPatientRole(role)) {
+        return res.json({
+          reply: "I can’t access clinic-wide revenue from this role.",
+          cards: [],
+          suggestions,
+          meta: { intent, counts: { invoices: 0 }, entityIds: [] },
+        });
+      }
+
+      let invoiceSql = `
+        SELECT i.id, i.issue_date, i.amount, i.status, i.paid_date, u.full_name AS patient_name
+        FROM invoices i
+        LEFT JOIN users u ON u.id = i.patient_id
+      `;
+      const invParams = [];
+      if (isPatientRole(role)) {
+        invoiceSql += " WHERE i.patient_id = ? ";
+        invParams.push(userId);
+      }
+      invoiceSql += " ORDER BY i.created_at DESC LIMIT 8";
+      const [invoiceRows] = await pool.query(invoiceSql, invParams);
+      const [summaryRows] = await pool.query(
+        `
+        SELECT 
+          COUNT(*) AS total_count,
+          SUM(CASE WHEN status <> 'Paid' THEN amount ELSE 0 END) AS outstanding_total
+        FROM invoices
+        ${isPatientRole(role) ? "WHERE patient_id = ?" : ""}
+        `,
+        isPatientRole(role) ? [userId] : []
+      );
+      const invoices = Array.isArray(invoiceRows) ? invoiceRows : [];
+      const summary = Array.isArray(summaryRows) && summaryRows.length ? summaryRows[0] : { total_count: 0, outstanding_total: 0 };
+      const reply =
+        invoices.length > 0
+          ? `Found ${invoices.length} invoice(s). Outstanding amount is ${Number(summary.outstanding_total || 0).toFixed(2)}.`
+          : "No invoices found in your scope.";
+      if (process.env.NODE_ENV !== "production") {
+        console.log("ASSISTANT DEBUG", {
+          ...headersMeta,
+          invoiceCount: invoices.length,
+          outstanding: Number(summary.outstanding_total || 0),
+        });
+      }
+      return res.json({
+        reply,
+        cards: [
+          {
+            type: "revenue",
+            title: "Revenue snapshot",
+            rows: [
+              {
+                totalInvoices: Number(summary.total_count || 0),
+                outstandingAmount: Number(summary.outstanding_total || 0),
+              },
+            ],
+          },
+          { type: "invoices", title: "Latest invoices", rows: invoices },
+        ],
+        meta: {
+          intent,
+          counts: { invoices: invoices.length },
+          entityIds: invoices.map((r) => r.id),
+        },
+        suggestions,
+      });
+    }
+
+    return res.json({
+      reply:
+        "I can help with appointments, case stages, inventory, and revenue reports. Try one of the quick actions.",
+      cards: [],
+      suggestions,
+      meta: { intent: "fallback", counts: {}, entityIds: [] },
+    });
   } catch (e) {
-    res.status(502).json({ message: "Assistant service unavailable" });
+    console.error("ASSISTANT MESSAGE ERROR:", e);
+    res.status(500).json({ message: "Assistant request failed" });
   }
 });
 

@@ -1,0 +1,2 @@
+﻿# Optional assistant service deps (requires Python >=3.8)
+-r assistant_service/requirements.txt

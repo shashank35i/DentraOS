@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { AlertCircleIcon, CheckCircle2Icon, Loader2Icon } from "lucide-react";
 import { AIAssistantModal } from "../../components/ai/AIAssistantModal";
 import { DoctorLayout } from "./DoctorLayout";
 
@@ -18,10 +19,30 @@ type CaseTimelineEntry = {
   action: string;
   note: string;
   createdAt: string;
+  actor?: string;
+};
+
+type CaseAgentStatus = {
+  eventId: number | null;
+  eventType: string;
+  status: string;
+  updatedAt: string;
+  lastError: string | null;
+  actor?: string | null;
+};
+
+type CaseDocument = {
+  id: string | number;
+  doc_type: string;
+  content: string;
+  status: string;
+  updated_at?: string;
+  created_at?: string;
 };
 
 const API_BASE_URL =
   (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
+const ACTIVE_AGENT_STATUSES = new Set(["NEW", "QUEUED", "PROCESSING"]);
 
 const getAuthToken = () =>
   localStorage.getItem("authToken") ||
@@ -77,6 +98,8 @@ export const DoctorCaseDetails: React.FC = () => {
 
   const [summaries, setSummaries] = useState<CaseSummary[]>([]);
   const [timeline, setTimeline] = useState<CaseTimelineEntry[]>([]);
+  const [documents, setDocuments] = useState<CaseDocument[]>([]);
+  const [agentStatus, setAgentStatus] = useState<CaseAgentStatus | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -84,12 +107,17 @@ export const DoctorCaseDetails: React.FC = () => {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [summaryStatus, setSummaryStatus] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [lastCheckedAt, setLastCheckedAt] = useState<string>("");
 
   const displayCaseId = useMemo(() => {
     if (caseUid) return caseUid;
     if (dbId) return `CASE-${dbId}`;
     return "CASE-UNKNOWN";
   }, [caseUid, dbId]);
+
+  const isSummaryBusy = ACTIVE_AGENT_STATUSES.has(
+    String(agentStatus?.status || "").toUpperCase()
+  );
 
   useEffect(() => {
     const token = getAuthToken();
@@ -153,6 +181,41 @@ export const DoctorCaseDetails: React.FC = () => {
 
     resolveDbId();
   }, [caseRef]);
+
+  const fetchAgentStatus = async () => {
+    const token = getAuthToken();
+    if (!token || !dbId) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/cases/${dbId}/agent-status`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        setAgentStatus(null);
+        return;
+      }
+      const data = await res.json();
+      const latest = data?.latest;
+      if (!latest) {
+        setAgentStatus(null);
+        setLastCheckedAt(new Date().toISOString().slice(0, 19).replace("T", " "));
+        return;
+      }
+      setAgentStatus({
+        eventId: Number(latest.eventId || 0) || null,
+        eventType: safeText(latest.eventType),
+        status: safeText(latest.status),
+        updatedAt: safeText(latest.updatedAt).slice(0, 19).replace("T", " "),
+        lastError: latest.lastError ? String(latest.lastError) : null,
+        actor: latest.actor ? String(latest.actor) : null,
+      });
+      setLastCheckedAt(new Date().toISOString().slice(0, 19).replace("T", " "));
+    } catch {
+      setAgentStatus(null);
+    }
+  };
 
   useEffect(() => {
     const token = getAuthToken();
@@ -222,7 +285,7 @@ export const DoctorCaseDetails: React.FC = () => {
     const fetchSummaries = async () => {
       try {
         const res = await fetch(
-          `${API_BASE_URL}/api/doctor/cases/${dbId}/summariesincludePending=1`,
+          `${API_BASE_URL}/api/doctor/cases/${dbId}/summaries?includePending=1`,
           {
             headers: {
               "Content-Type": "application/json",
@@ -270,18 +333,56 @@ export const DoctorCaseDetails: React.FC = () => {
           id: t.id,
           action: safeText(t.action || t.event_type || t.type),
           note: safeText(t.note || t.message || t.summary),
-          createdAt: safeText(t.created_at || t.createdAt).slice(0, 10),
+          createdAt: safeText(t.created_at || t.createdAt),
+          actor: safeText(t.actor || t.actor_name || t.actor_role || t.created_by),
         }));
+        mapped.sort((a, b) => {
+          const ta = new Date(a.createdAt || 0).getTime();
+          const tb = new Date(b.createdAt || 0).getTime();
+          return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+        });
         setTimeline(mapped);
       } catch {
         setTimeline([]);
       }
     };
 
+    const fetchDocuments = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/doctor/cases/${dbId}/documents`,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        if (!res.ok) {
+          setDocuments([]);
+          return;
+        }
+        const data = await res.json();
+        setDocuments((data.items || []) as CaseDocument[]);
+      } catch {
+        setDocuments([]);
+      }
+    };
+
     fetchCase();
     fetchSummaries();
     fetchTimeline();
+    fetchDocuments();
+    fetchAgentStatus();
   }, [dbId]);
+
+  useEffect(() => {
+    if (!dbId || !isSummaryBusy) return;
+    const timer = setInterval(() => {
+      fetchAgentStatus();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [dbId, isSummaryBusy]);
 
   const handleSave = async () => {
     const token = getAuthToken();
@@ -321,9 +422,19 @@ export const DoctorCaseDetails: React.FC = () => {
 
   const handleRequestSummary = async () => {
     const token = getAuthToken();
-    if (!token || !dbId) return;
+    if (!token || !dbId || isSummaryBusy) return;
     try {
       setSummaryStatus(null);
+      const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+      setAgentStatus({
+        eventId: null,
+        eventType: "CaseGenerateSummary",
+        status: "QUEUED",
+        updatedAt: now,
+        lastError: null,
+        actor: null,
+      });
+
       const res = await fetch(
         `${API_BASE_URL}/api/doctor/cases/${dbId}/summary`,
         {
@@ -337,16 +448,115 @@ export const DoctorCaseDetails: React.FC = () => {
       );
 
       if (!res.ok) {
+        if (res.status === 409) {
+          const body = await res.json().catch(() => ({}));
+          const existing = body?.existing || {};
+          setAgentStatus({
+            eventId: Number(existing.eventId || 0) || null,
+            eventType: "CaseGenerateSummary",
+            status: safeText(existing.status || "PROCESSING"),
+            updatedAt: safeText(existing.updatedAt || now),
+            lastError: null,
+            actor: null,
+          });
+          setSummaryStatus("Summary already queued. Tracking existing job.");
+          return;
+        }
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || "Failed to request summary");
       }
 
+      const body = await res.json().catch(() => ({}));
       setSummaryStatus(
         "Summary requested. The AI agent will process it shortly."
       );
+      setAgentStatus({
+        eventId: Number(body?.eventId || 0) || null,
+        eventType: "CaseGenerateSummary",
+        status: "QUEUED",
+        updatedAt: now,
+        lastError: null,
+        actor: null,
+      });
     } catch (err: any) {
       setSummaryStatus(err.message || "Failed to request summary.");
     }
+  };
+
+  const handleApproveSummary = async (summaryId: number) => {
+    const token = getAuthToken();
+    if (!token || !dbId || !summaryId) return;
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/doctor/cases/${dbId}/summaries/${summaryId}/approve`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to approve summary");
+      }
+      setSummaries((prev) =>
+        prev.map((s) => (s.id === summaryId ? { ...s, status: "APPROVED" } : s))
+      );
+      setSummaryStatus("Summary approved.");
+      fetchAgentStatus();
+    } catch (err: any) {
+      setSummaryStatus(err.message || "Failed to approve summary.");
+    }
+  };
+
+  const renderAgentStatus = () => {
+    if (!agentStatus) {
+      return <span>No recent case-agent event.</span>;
+    }
+    const status = String(agentStatus.status || "").toUpperCase();
+    const shortErr = agentStatus.lastError
+      ? String(agentStatus.lastError).slice(0, 140)
+      : "";
+
+    if (status === "DONE") {
+      return (
+        <span className="inline-flex items-center gap-2">
+          <CheckCircle2Icon size={14} className="text-emerald-600" />
+          <span className="font-semibold text-ink">Summary generation: DONE</span>
+          {agentStatus.eventId ? <span>- event #{agentStatus.eventId}</span> : null}
+          <span>({agentStatus.updatedAt || "--"})</span>
+        </span>
+      );
+    }
+
+    if (status === "FAILED") {
+      return (
+        <span className="inline-flex items-center gap-2">
+          <AlertCircleIcon size={14} className="text-rose-600" />
+          <span className="font-semibold text-rose-700">Summary generation: FAILED</span>
+          {agentStatus.eventId ? <span>- event #{agentStatus.eventId}</span> : null}
+          {shortErr ? <span>- {shortErr}</span> : null}
+          <button
+            type="button"
+            onClick={handleRequestSummary}
+            className="underline text-ink hover:text-brand"
+          >
+            Retry
+          </button>
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-2">
+        <Loader2Icon size={14} className="animate-spin text-brand" />
+        <span className="font-semibold text-ink">AI is generating summary...</span>
+        {agentStatus.eventId ? <span>- event #{agentStatus.eventId}</span> : null}
+        <span>({agentStatus.updatedAt || "--"})</span>
+      </span>
+    );
   };
 
   if (loading) {
@@ -421,6 +631,14 @@ export const DoctorCaseDetails: React.FC = () => {
           {statusMsg}
         </div>
       )}
+      <div className="mb-4 rounded-2xl border border-line bg-surface px-4 py-3 text-xs text-ink-muted">
+        <div>{renderAgentStatus()}</div>
+        <div className="mt-1 text-[11px] text-ink-muted">
+          Last checked: {lastCheckedAt || "--"}
+        </div>
+      </div>
+
+
 
       <div className="grid gap-5 lg:grid-cols-[1.3fr_0.7fr]">
         <section className="surface rounded-2xl px-5 py-4 space-y-3">
@@ -506,10 +724,10 @@ export const DoctorCaseDetails: React.FC = () => {
             <button
               type="button"
               onClick={handleRequestSummary}
-              disabled={!dbId}
+              disabled={!dbId || isSummaryBusy}
               className="btn btn-secondary text-xs disabled:opacity-60"
             >
-              Generate AI summary
+              {isSummaryBusy ? "Generating..." : "Generate AI summary"}
             </button>
             <button
               type="button"
@@ -537,7 +755,7 @@ export const DoctorCaseDetails: React.FC = () => {
                     className="rounded-xl border border-line bg-surface-muted p-3"
                   >
                     <div className="text-[11px] text-ink-muted">
-                      {s.createdAt || "--"}
+                      {s.createdAt ? s.createdAt.slice(0, 16).replace("T", " ") : "--"}
                       {s.status ? ` - ${s.status}` : ""}
                     </div>
                     <p className="text-xs text-ink">
@@ -548,6 +766,38 @@ export const DoctorCaseDetails: React.FC = () => {
                         {s.recommendation}
                       </p>
                     )}
+                    {String(s.status).toUpperCase() !== "APPROVED" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveSummary(s.id)}
+                        className="mt-2 rounded-lg border border-line bg-surface px-2 py-1 text-[11px] text-ink hover:bg-surface-muted"
+                      >
+                        Approve summary
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="surface rounded-2xl px-4 py-4 space-y-2">
+            <h3 className="text-sm font-semibold text-ink">Generated documents</h3>
+            {documents.length === 0 ? (
+              <p className="text-xs text-ink-muted">No generated documents yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {documents.map((d) => (
+                  <div key={d.id} className="rounded-xl border border-line bg-surface-muted p-3">
+                    <div className="text-[11px] text-ink-muted">
+                      {String(d.doc_type || "").replace("_", " ")} - {d.status || "DRAFT"}
+                    </div>
+                    <p className="text-xs text-ink mt-1 whitespace-pre-wrap">
+                      {String(d.content || "").slice(0, 260) || "Document content pending."}
+                    </p>
+                    <div className="mt-1 text-[11px] text-ink-muted">
+                      {(d.updated_at || d.created_at || "").toString().slice(0, 16).replace("T", " ")}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -566,7 +816,9 @@ export const DoctorCaseDetails: React.FC = () => {
                     className="rounded-xl border border-line bg-surface-muted p-3 text-xs text-ink-muted"
                   >
                     <div className="text-[11px] text-ink-muted">
-                      {t.createdAt || "--"}
+                      {t.createdAt ? t.createdAt.slice(0, 16).replace("T", " ") : "--"}
+                      {" - "}
+                      {t.actor || "System"}
                     </div>
                     <div className="font-semibold text-ink">
                       {t.action || "Update"}

@@ -49,7 +49,16 @@ $apptNoShowId = $apptNoShow.appointment.dbId
 
 # Force monitor tick via DB insert (outbox)
 $today = (Get-Date).ToString("yyyy-MM-dd")
-& docker exec -i dental-mysql mysql -h 127.0.0.1 -udental_app -pdental_app_pass dental_clinic -e "UPDATE appointments SET scheduled_date='$today', scheduled_time='00:00:00', status='Confirmed' WHERE id=$apptNoShowId; INSERT INTO agent_events (event_type, payload_json, status, available_at, created_at) VALUES ('AppointmentMonitorTick','{}','NEW',NOW(),NOW());" | Out-Null
+$dbContainer = "dentraos-mysql"
+if (-not (docker ps --format "{{.Names}}" | Select-String -SimpleMatch $dbContainer)) {
+  $fallback = "dental-mysql"
+  if (docker ps --format "{{.Names}}" | Select-String -SimpleMatch $fallback) {
+    $dbContainer = $fallback
+  } else {
+    throw "No running MySQL container found (checked: dentraos-mysql, dental-mysql)."
+  }
+}
+& docker exec -i $dbContainer mysql -h 127.0.0.1 -udentra -pdentra_pass dental_clinic -e "UPDATE appointments SET scheduled_date='$today', scheduled_time='00:00:00', status='Confirmed' WHERE id=$apptNoShowId; INSERT INTO agent_events (event_type, payload_json, status, available_at, created_at) VALUES ('AppointmentMonitorTick','{}','NEW',NOW(),NOW());" | Out-Null
 
 Start-Sleep -Seconds 5
 
