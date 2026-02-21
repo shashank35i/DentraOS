@@ -1028,6 +1028,238 @@ async function insertInventoryUsageLogFromDeduction({
   return { ok: true };
 }
 
+async function ensureInvoiceForCompletedAppointment({
+  appointmentId,
+  patientId,
+  appointmentType,
+}) {
+  if (!(await tableExists("invoices")) || !(await tableExists("invoice_items"))) {
+    return { ok: false, reason: "invoice tables missing" };
+  }
+
+  const invoiceCols = await getTableColumns("invoices");
+  const invoiceItemCols = await getTableColumns("invoice_items");
+
+  const [visitRows] = await pool.query(
+    `SELECT id FROM visits WHERE appointment_id = ? ORDER BY id DESC LIMIT 1`,
+    [appointmentId]
+  );
+  const visitId = Number(visitRows?.[0]?.id || 0);
+
+  let billItems = [];
+  if (visitId && (await tableExists("visit_procedures"))) {
+    const vpCols = await getTableColumns("visit_procedures");
+    const codeCol = pickCol(vpCols, ["procedure_code", "procedure_type"]);
+    const qtyCol = pickCol(vpCols, ["qty", "quantity"]);
+    const unitCol = pickCol(vpCols, ["unit_price"]);
+    const amountCol = pickCol(vpCols, ["amount"]);
+    if (codeCol) {
+      const [rows] = await pool.query(
+        `
+        SELECT ${codeCol} AS code,
+               ${qtyCol ? `${qtyCol} AS qty,` : "1 AS qty,"}
+               ${unitCol ? `${unitCol} AS unit_price,` : "0 AS unit_price,"}
+               ${amountCol ? `${amountCol} AS amount` : "NULL AS amount"}
+        FROM visit_procedures
+        WHERE visit_id = ?
+        `,
+        [visitId]
+      );
+      billItems = (rows || []).map((r) => {
+        const qty = Math.max(1, Number(r.qty || 1));
+        const unitPrice = Number(r.unit_price || 0);
+        const amount = Number(r.amount);
+        return {
+          code: String(r.code || "CONSULTATION"),
+          qty,
+          unit_price: unitPrice,
+          amount: Number.isFinite(amount) ? amount : qty * unitPrice,
+          item_type: "PROCEDURE",
+        };
+      });
+    }
+  }
+
+  if (!billItems.length) {
+    const fallback = {
+      CONSULTATION: 500,
+      CHECKUP: 500,
+      SCALING: 1200,
+      FILLING: 1500,
+      EXTRACTION: 2000,
+      ROOT_CANAL: 6000,
+      IMPLANT: 25000,
+    };
+    const code = String(appointmentType || "CONSULTATION")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "_");
+    const unitPrice = Number(fallback[code] || 500);
+    billItems = [
+      {
+        code,
+        qty: 1,
+        unit_price: unitPrice,
+        amount: unitPrice,
+        item_type: "PROCEDURE",
+      },
+    ];
+  }
+
+  const totalAmount = billItems.reduce((s, it) => s + Number(it.amount || 0), 0);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [existingRows] = await conn.query(
+      `SELECT id FROM invoices WHERE appointment_id = ? ORDER BY id DESC LIMIT 1`,
+      [appointmentId]
+    );
+
+    let invoiceId = Number(existingRows?.[0]?.id || 0);
+    if (!invoiceId) {
+      const cols = [];
+      const vals = [];
+      if (invoiceCols.has("patient_id")) {
+        cols.push("patient_id");
+        vals.push(patientId || null);
+      }
+      if (invoiceCols.has("appointment_id")) {
+        cols.push("appointment_id");
+        vals.push(appointmentId);
+      }
+      if (invoiceCols.has("issue_date")) {
+        cols.push("issue_date");
+        vals.push(formatDateYYYYMMDD(new Date()));
+      }
+      if (invoiceCols.has("amount")) {
+        cols.push("amount");
+        vals.push(totalAmount);
+      }
+      if (invoiceCols.has("status")) {
+        cols.push("status");
+        vals.push("Pending");
+      }
+      if (invoiceCols.has("invoice_type")) {
+        cols.push("invoice_type");
+        vals.push("FINAL");
+      }
+      if (invoiceCols.has("created_at")) {
+        cols.push("created_at");
+        vals.push(new Date());
+      }
+      if (invoiceCols.has("updated_at")) {
+        cols.push("updated_at");
+        vals.push(new Date());
+      }
+      const placeholders = cols.map(() => "?").join(",");
+      const [ins] = await conn.query(
+        `INSERT INTO invoices (${cols.join(",")}) VALUES (${placeholders})`,
+        vals
+      );
+      invoiceId = Number(ins.insertId || 0);
+    } else {
+      const sets = [];
+      const vals = [];
+      if (invoiceCols.has("amount")) {
+        sets.push("amount = ?");
+        vals.push(totalAmount);
+      }
+      if (invoiceCols.has("status")) {
+        sets.push("status = 'Pending'");
+      }
+      if (invoiceCols.has("invoice_type")) {
+        sets.push("invoice_type = 'FINAL'");
+      }
+      if (invoiceCols.has("updated_at")) {
+        sets.push("updated_at = NOW()");
+      }
+      if (sets.length) {
+        vals.push(invoiceId);
+        await conn.query(`UPDATE invoices SET ${sets.join(", ")} WHERE id = ?`, vals);
+      }
+      await conn.query(`DELETE FROM invoice_items WHERE invoice_id = ?`, [invoiceId]);
+    }
+
+    if (invoiceId) {
+      const insertCols = ["invoice_id"];
+      if (invoiceItemCols.has("item_type")) insertCols.push("item_type");
+      if (invoiceItemCols.has("code")) insertCols.push("code");
+      if (invoiceItemCols.has("description")) insertCols.push("description");
+      if (invoiceItemCols.has("qty")) insertCols.push("qty");
+      if (invoiceItemCols.has("unit_price")) insertCols.push("unit_price");
+      if (invoiceItemCols.has("amount")) insertCols.push("amount");
+      if (invoiceItemCols.has("created_at")) insertCols.push("created_at");
+
+      const placeholders = billItems
+        .map(() => `(${insertCols.map(() => "?").join(",")})`)
+        .join(",");
+      const vals = [];
+      for (const item of billItems) {
+        vals.push(invoiceId);
+        if (invoiceItemCols.has("item_type")) vals.push(item.item_type || "PROCEDURE");
+        if (invoiceItemCols.has("code")) vals.push(item.code || "CONSULTATION");
+        if (invoiceItemCols.has("description")) vals.push(item.code || "CONSULTATION");
+        if (invoiceItemCols.has("qty")) vals.push(Math.max(1, Number(item.qty || 1)));
+        if (invoiceItemCols.has("unit_price")) vals.push(Number(item.unit_price || 0));
+        if (invoiceItemCols.has("amount")) vals.push(Number(item.amount || 0));
+        if (invoiceItemCols.has("created_at")) vals.push(new Date());
+      }
+      await conn.query(
+        `INSERT INTO invoice_items (${insertCols.join(",")}) VALUES ${placeholders}`,
+        vals
+      );
+    }
+
+    await conn.commit();
+    return { ok: true, invoiceId, totalAmount };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+async function getInventoryUsageQueryParts() {
+  const usageCols = await getTableColumns("inventory_usage_logs");
+  const invCols = await getTableColumns("inventory_items");
+
+  const usageIdCol = pickCol(usageCols, ["id"]);
+  const usageApptCol = pickCol(usageCols, ["appointment_id"]);
+  const usageVisitCol = pickCol(usageCols, ["visit_id"]);
+  const usageItemIdCol = pickCol(usageCols, ["item_id", "inventory_item_id"]);
+  const usageItemCodeCol = pickCol(usageCols, ["item_code", "code"]);
+  const usageQtyCol = pickCol(usageCols, ["qty_used", "qty", "quantity"]);
+  const usageSourceCol = pickCol(usageCols, ["source"]);
+  const usageSourceTypeCol = pickCol(usageCols, ["source_type"]);
+  const usageSourceRefCol = pickCol(usageCols, ["source_ref_id"]);
+  const usageEventCol = pickCol(usageCols, ["event_id"]);
+  const usageCreatedCol = pickCol(usageCols, ["created_at", "used_at", "updated_at"]);
+
+  const invIdCol = pickCol(invCols, ["id", "inventory_item_id"]);
+  const invNameCol = pickCol(invCols, ["name", "item_name"]);
+  const hasJoin = !!(usageItemIdCol && invIdCol);
+
+  return {
+    usageCols,
+    usageIdCol,
+    usageApptCol,
+    usageVisitCol,
+    usageItemIdCol,
+    usageItemCodeCol,
+    usageQtyCol,
+    usageSourceCol,
+    usageSourceTypeCol,
+    usageSourceRefCol,
+    usageEventCol,
+    usageCreatedCol,
+    invIdCol,
+    invNameCol,
+    hasJoin,
+  };
+}
+
 async function ensureLowStockPoDraft({ itemId, itemCode, vendorId = null, stock, threshold }) {
   const hasPo = await tableExists("purchase_orders");
   const hasPoi = await tableExists("purchase_order_items");
@@ -1570,12 +1802,22 @@ async function applyInventoryConsumptionFromVisit({ appointmentId, doctorId, use
       }
     }
   }
-  const [recentUsageRows] = await pool.query(
-    `SELECT id, appointment_id, visit_id, item_code, qty_used, created_at
-     FROM inventory_usage_logs
-     ORDER BY id DESC
-     LIMIT 5`
-  );
+  const p = await getInventoryUsageQueryParts();
+  let recentUsageRows = [];
+  if (p.usageIdCol) {
+    const [rowsRecent] = await pool.query(
+      `SELECT l.${p.usageIdCol} AS id,
+              ${p.usageApptCol ? `l.${p.usageApptCol}` : "NULL"} AS appointment_id,
+              ${p.usageVisitCol ? `l.${p.usageVisitCol}` : "NULL"} AS visit_id,
+              ${p.usageItemCodeCol ? `l.${p.usageItemCodeCol}` : "NULL"} AS item_code,
+              ${p.usageQtyCol ? `l.${p.usageQtyCol}` : "0"} AS qty_used,
+              ${p.usageCreatedCol ? `l.${p.usageCreatedCol}` : "NULL"} AS created_at
+       FROM inventory_usage_logs l
+       ORDER BY l.${p.usageIdCol} DESC
+       LIMIT 5`
+    );
+    recentUsageRows = rowsRecent || [];
+  }
   return { ok: true, updated, usageRowsInserted, recentUsageLogs: recentUsageRows || [] };
 }
 
@@ -4411,24 +4653,31 @@ app.get(
       );
       if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
 
-      const [usageRows] = await pool.query(
-        `
-        SELECT
-          l.id,
-          l.appointment_id,
-          l.visit_id,
-          l.item_code,
-          COALESCE(i.name, l.item_code) AS item_name,
-          l.qty_used,
-          l.created_at
-        FROM inventory_usage_logs l
-        LEFT JOIN inventory_items i ON i.id = l.item_id
-        WHERE l.appointment_id = ?
-        ORDER BY l.id DESC
-        LIMIT 20
-        `,
-        [dbId]
-      );
+      const p = await getInventoryUsageQueryParts();
+      let usageRows = [];
+      if (p.usageApptCol && p.usageIdCol) {
+        const [rowsUsage] = await pool.query(
+          `
+          SELECT
+            l.${p.usageIdCol} AS id,
+            l.${p.usageApptCol} AS appointment_id,
+            ${p.usageVisitCol ? `l.${p.usageVisitCol}` : "NULL"} AS visit_id,
+            ${p.usageItemCodeCol ? `l.${p.usageItemCodeCol}` : "NULL"} AS item_code,
+            COALESCE(${p.hasJoin && p.invNameCol ? `i.${p.invNameCol}` : "NULL"}, ${
+              p.usageItemCodeCol ? `l.${p.usageItemCodeCol}` : "NULL"
+            }) AS item_name,
+            ${p.usageQtyCol ? `l.${p.usageQtyCol}` : "0"} AS qty_used,
+            ${p.usageCreatedCol ? `l.${p.usageCreatedCol}` : "NULL"} AS created_at
+          FROM inventory_usage_logs l
+          ${p.hasJoin ? `LEFT JOIN inventory_items i ON i.${p.invIdCol} = l.${p.usageItemIdCol}` : ""}
+          WHERE l.${p.usageApptCol} = ?
+          ORDER BY l.${p.usageIdCol} DESC
+          LIMIT 20
+          `,
+          [dbId]
+        );
+        usageRows = rowsUsage || [];
+      }
       const [invoiceRows] = await pool.query(
         `
         SELECT id, amount, status, issue_date, paid_date
@@ -4852,6 +5101,16 @@ app.patch(
         });
       } catch (e) {
         console.error("Inline inventory consumption failed:", e?.message || e);
+      }
+
+      try {
+        await ensureInvoiceForCompletedAppointment({
+          appointmentId: dbId,
+          patientId: rows[0].patient_id,
+          appointmentType: rows[0].type || "CONSULTATION",
+        });
+      } catch (e) {
+        console.error("Inline invoice generation failed:", e?.message || e);
       }
 
       return res.json({ ok: true });
@@ -5762,24 +6021,26 @@ app.get(
         if (!(await tableExists("inventory_usage_logs"))) {
           return res.json({ items: [] });
         }
+        const p = await getInventoryUsageQueryParts();
+        if (!p.usageIdCol) return res.json({ items: [] });
         const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
         const [rows] = await pool.query(
           `
-          SELECT l.id,
-                 l.appointment_id,
-                 l.visit_id,
-                 l.item_id,
-                 l.item_code,
-                 l.qty_used,
-                 l.source,
-                 l.source_type,
-                 l.source_ref_id,
-                 l.event_id,
-                 l.created_at,
-                 i.name AS item_name
+          SELECT l.${p.usageIdCol} AS id,
+                 ${p.usageApptCol ? `l.${p.usageApptCol}` : "NULL"} AS appointment_id,
+                 ${p.usageVisitCol ? `l.${p.usageVisitCol}` : "NULL"} AS visit_id,
+                 ${p.usageItemIdCol ? `l.${p.usageItemIdCol}` : "NULL"} AS item_id,
+                 ${p.usageItemCodeCol ? `l.${p.usageItemCodeCol}` : "NULL"} AS item_code,
+                 ${p.usageQtyCol ? `l.${p.usageQtyCol}` : "0"} AS qty_used,
+                 ${p.usageSourceCol ? `l.${p.usageSourceCol}` : "NULL"} AS source,
+                 ${p.usageSourceTypeCol ? `l.${p.usageSourceTypeCol}` : "NULL"} AS source_type,
+                 ${p.usageSourceRefCol ? `l.${p.usageSourceRefCol}` : "NULL"} AS source_ref_id,
+                 ${p.usageEventCol ? `l.${p.usageEventCol}` : "NULL"} AS event_id,
+                 ${p.usageCreatedCol ? `l.${p.usageCreatedCol}` : "NULL"} AS created_at,
+                 ${p.hasJoin && p.invNameCol ? `i.${p.invNameCol}` : "NULL"} AS item_name
           FROM inventory_usage_logs l
-          LEFT JOIN inventory_items i ON i.id = l.item_id
-          ORDER BY l.id DESC
+          ${p.hasJoin ? `LEFT JOIN inventory_items i ON i.${p.invIdCol} = l.${p.usageItemIdCol}` : ""}
+          ORDER BY l.${p.usageIdCol} DESC
           LIMIT ?
           `,
           [limit]
@@ -5799,23 +6060,36 @@ app.get(
       if (!rows.length) return res.status(404).json({ message: "Item not found" });
 
       const item = rows[0];
+      const p = await getInventoryUsageQueryParts();
+      const usageWhereParts = [];
+      const usageParams = [];
+      if (p.usageItemIdCol) {
+        usageWhereParts.push(`l.${p.usageItemIdCol} = ?`);
+        usageParams.push(item.id);
+      }
+      if (p.usageItemCodeCol) {
+        usageWhereParts.push(`l.${p.usageItemCodeCol} = ?`);
+        usageParams.push(item.item_code);
+      }
       const [usageRows] = await pool.query(
         `
         SELECT
-          l.id,
-          l.appointment_id,
-          l.visit_id,
-          l.item_code,
-          COALESCE(i.name, l.item_code) AS item_name,
-          l.qty_used,
-          l.created_at
+          l.${p.usageIdCol || "id"} AS id,
+          ${p.usageApptCol ? `l.${p.usageApptCol}` : "NULL"} AS appointment_id,
+          ${p.usageVisitCol ? `l.${p.usageVisitCol}` : "NULL"} AS visit_id,
+          ${p.usageItemCodeCol ? `l.${p.usageItemCodeCol}` : "NULL"} AS item_code,
+          COALESCE(${p.hasJoin && p.invNameCol ? `i.${p.invNameCol}` : "NULL"}, ${
+            p.usageItemCodeCol ? `l.${p.usageItemCodeCol}` : "NULL"
+          }) AS item_name,
+          ${p.usageQtyCol ? `l.${p.usageQtyCol}` : "0"} AS qty_used,
+          ${p.usageCreatedCol ? `l.${p.usageCreatedCol}` : "NULL"} AS created_at
         FROM inventory_usage_logs l
-        LEFT JOIN inventory_items i ON i.id = l.item_id
-        WHERE l.item_id = ? OR l.item_code = ?
-        ORDER BY l.id DESC
+        ${p.hasJoin ? `LEFT JOIN inventory_items i ON i.${p.invIdCol} = l.${p.usageItemIdCol}` : ""}
+        WHERE ${usageWhereParts.join(" OR ") || "1=0"}
+        ORDER BY l.${p.usageIdCol || "id"} DESC
         LIMIT 25
         `,
-        [item.id, item.item_code]
+        usageParams
       );
 
       return res.json({ item, usage: usageRows || [] });
@@ -7333,7 +7607,7 @@ app.patch(
       const doctorId = req.user.id;
 
       const [rows] = await pool.query(
-        `SELECT id, patient_id, doctor_id, type, linked_case_id
+        `SELECT id, patient_id, doctor_id, type, linked_case_id, status
          FROM appointments
          WHERE id = ? AND doctor_id = ?
          LIMIT 1`,
@@ -7377,6 +7651,15 @@ app.patch(
         });
       } catch (e) {
         console.error("Inline inventory consumption failed:", e?.message || e);
+      }
+      try {
+        await ensureInvoiceForCompletedAppointment({
+          appointmentId: dbId,
+          patientId: rows[0].patient_id,
+          appointmentType: rows[0].type || "CONSULTATION",
+        });
+      } catch (e) {
+        console.error("Inline invoice generation failed:", e?.message || e);
       }
 
       return res.json({ ok: true });
@@ -8636,24 +8919,26 @@ app.get(
       if (!(await tableExists("inventory_usage_logs"))) {
         return res.json({ items: [] });
       }
+      const p = await getInventoryUsageQueryParts();
+      if (!p.usageIdCol) return res.json({ items: [] });
       const limit = Math.max(1, Math.min(100, Number(req.query.limit || 20)));
       const [rows] = await pool.query(
         `
-        SELECT l.id,
-               l.appointment_id,
-               l.visit_id,
-               l.item_id,
-               l.item_code,
-               l.qty_used,
-               l.source,
-               l.source_type,
-               l.source_ref_id,
-               l.event_id,
-               l.created_at,
-               i.name AS item_name
+        SELECT l.${p.usageIdCol} AS id,
+               ${p.usageApptCol ? `l.${p.usageApptCol}` : "NULL"} AS appointment_id,
+               ${p.usageVisitCol ? `l.${p.usageVisitCol}` : "NULL"} AS visit_id,
+               ${p.usageItemIdCol ? `l.${p.usageItemIdCol}` : "NULL"} AS item_id,
+               ${p.usageItemCodeCol ? `l.${p.usageItemCodeCol}` : "NULL"} AS item_code,
+               ${p.usageQtyCol ? `l.${p.usageQtyCol}` : "0"} AS qty_used,
+               ${p.usageSourceCol ? `l.${p.usageSourceCol}` : "NULL"} AS source,
+               ${p.usageSourceTypeCol ? `l.${p.usageSourceTypeCol}` : "NULL"} AS source_type,
+               ${p.usageSourceRefCol ? `l.${p.usageSourceRefCol}` : "NULL"} AS source_ref_id,
+               ${p.usageEventCol ? `l.${p.usageEventCol}` : "NULL"} AS event_id,
+               ${p.usageCreatedCol ? `l.${p.usageCreatedCol}` : "NULL"} AS created_at,
+               ${p.hasJoin && p.invNameCol ? `i.${p.invNameCol}` : "NULL"} AS item_name
         FROM inventory_usage_logs l
-        LEFT JOIN inventory_items i ON i.id = l.item_id
-        ORDER BY l.id DESC
+        ${p.hasJoin ? `LEFT JOIN inventory_items i ON i.${p.invIdCol} = l.${p.usageItemIdCol}` : ""}
+        ORDER BY l.${p.usageIdCol} DESC
         LIMIT ?
         `,
         [limit]
