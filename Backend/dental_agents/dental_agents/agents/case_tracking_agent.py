@@ -1234,22 +1234,76 @@ def _on_case_generate_summary_conn(conn, payload: Dict[str, Any]) -> None:
 
     uniq_procs = sorted(set([p.upper().replace("_", " ") for p in procedures if p]))
 
-    # Clinical summary (doctor-facing)
+    stage_raw = str(case_row.get("stage") or "NEW").upper()
+    stage_label = stage_raw.replace("_", " ").title()
+    risk_score = int(case_row.get("risk_score") or 0)
+    next_review_date = case_row.get("next_review_date")
+    case_type = str(case_row.get("case_type") or case_row.get("diagnosis") or "").strip()
+    latest_note = re.sub(r"\s+", " ", notes_sections[-1]).strip() if notes_sections else ""
+
+    # Clinical summary (doctor-facing, structured)
     clinical_summary = "\n".join(notes_sections)
     if uniq_procs:
         clinical_summary += "\n\nProcedures involved: " + ", ".join(uniq_procs)
+    clinical_summary += f"\n\nCurrent stage: {stage_label}."
+    if risk_score > 0:
+        clinical_summary += f" Risk score: {risk_score}%."
+    if next_review_date:
+        clinical_summary += f" Next review: {next_review_date}."
+
+    # Alternative operational summary (kept inside recommendation to diversify outputs)
+    ops_lines = [f"Case stage is {stage_label} with {len(rows)} documented visit(s)."]
+    if case_type:
+        ops_lines.append(f"Case type: {case_type}.")
+    if latest_note:
+        ops_lines.append(f"Latest clinical note: {latest_note[:180]}.")
+    if uniq_procs:
+        ops_lines.append("Recent procedures: " + ", ".join(uniq_procs[:6]) + ".")
+    if next_review_date:
+        ops_lines.append(f"Follow-up is targeted around {next_review_date}.")
+    ops_summary = " ".join(ops_lines)
 
     # Patient-friendly explanation (simple, safe)
-    sanitized_sections = [
-        re.sub(r"\s+", " ", s).strip()[:180] for s in notes_sections[:6]
-    ]
-    patient_summary = "Summary of your recent visits:\n" + "\n".join(
-        [f"- {s}" for s in sanitized_sections]
-    )
+    sanitized_sections = [re.sub(r"\s+", " ", s).strip()[:180] for s in notes_sections[:6]]
+    patient_summary = "Summary of your recent visits:\n" + "\n".join([f"- {s}" for s in sanitized_sections])
     if uniq_procs:
         patient_summary += "\n\nPlanned/performed procedures: " + ", ".join(uniq_procs[:12])
 
-    recommendation = "Review the treatment timeline, confirm next appointment, and schedule follow-ups as needed."
+    # Diverse recommendation blocks (agent-visible variation by stage/procedure/risk)
+    proc_blob = " ".join(uniq_procs).upper()
+    if stage_raw in ("NEW",):
+        recommendation = (
+            "Start-of-care plan: confirm baseline diagnostics, align treatment goals with the patient, "
+            "and lock the first follow-up appointment window."
+        )
+    elif stage_raw in ("WAITING_ON_PATIENT",):
+        recommendation = (
+            "Follow-up recovery plan: prioritize patient outreach, confirm pending review slot, "
+            "and capture any symptom changes before the next procedure."
+        )
+    elif "IMPLANT" in proc_blob:
+        recommendation = (
+            "Implant pathway: validate healing milestones, verify osseointegration readiness, "
+            "and schedule the next surgical/prosthetic stage with a recovery buffer."
+        )
+    elif "ROOT CANAL" in proc_blob or "RCT" in proc_blob:
+        recommendation = (
+            "Endodontic pathway: review pain/inflammation trend, confirm obturation follow-up, "
+            "and ensure crown-restoration handoff is scheduled."
+        )
+    elif risk_score >= 70:
+        recommendation = (
+            "High-risk watch: escalate review cadence, verify adherence blockers, "
+            "and create a contingency action plan before stage transition."
+        )
+    else:
+        recommendation = (
+            "Progress management: reconcile visit outcomes against treatment timeline, "
+            "confirm next appointment, and close pending follow-up tasks."
+        )
+
+    # Add concise operational context so each generated recommendation differs per case state
+    recommendation = recommendation + " " + ops_summary
 
     # Skip inserting duplicates (same summary + recommendation as latest)
     last = _get_latest_case_summary(conn, case_id)
