@@ -33,7 +33,6 @@ export const DoctorAppointmentDetails: React.FC = () => {
   const isTerminalStatus =
     statusNormalized === "completed" || statusNormalized === "cancelled" || statusNormalized === "no-show";
   const canComplete = !isTerminalStatus;
-  const canCancel = !isTerminalStatus;
 
   const load = async () => {
     if (!id) return;
@@ -350,14 +349,6 @@ export const DoctorAppointmentDetails: React.FC = () => {
                 title={canComplete ? "Mark appointment as completed" : "Completed/cancelled/no-show appointments are read-only"}
               >
                 Complete
-              </button>
-              <button
-                className="btn btn-secondary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => updateStatus("Cancelled")}
-                disabled={!canCancel}
-                title={canCancel ? "Cancel appointment" : "Completed/cancelled/no-show appointments are read-only"}
-              >
-                Cancel
               </button>
               <button
                 className="btn btn-secondary text-xs disabled:opacity-50 disabled:cursor-not-allowed"

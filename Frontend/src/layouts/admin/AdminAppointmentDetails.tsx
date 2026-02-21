@@ -25,8 +25,9 @@ export const AdminAppointmentDetails: React.FC = () => {
     .replace(/\s+/g, "-");
   const isTerminalStatus =
     statusRaw === "completed" || statusRaw === "cancelled" || statusRaw === "no-show";
-  const canComplete = !isTerminalStatus;
   const canCancel = !isTerminalStatus;
+  const canForceClose = statusRaw !== "completed";
+  const canNoShowOverride = statusRaw === "no-show";
 
   const load = async () => {
     if (!id) return;
@@ -72,24 +73,71 @@ export const AdminAppointmentDetails: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [id, agent?.status]);
 
-  const updateStatus = async (status: string) => {
+  const updateStatus = async (payload: { status: string; reason?: string; note?: string }) => {
     if (!id) return;
     try {
-      const isComplete = String(status).toLowerCase() === "completed";
-      const url = isComplete
-        ? `${API_BASE}/api/admin/appointments/${id}/complete`
-        : `${API_BASE}/api/admin/appointments/${id}`;
-      const method = "PATCH";
-      const res = await fetch(url, {
-        method,
+      const res = await fetch(`${API_BASE}/api/admin/appointments/${id}`, {
+        method: "PATCH",
         headers: authHeaders(),
-        body: isComplete ? undefined : JSON.stringify({ status }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || `Status ${res.status}`);
       await load();
     } catch (e: any) {
       setError(e.message || "Failed to update appointment status");
+    }
+  };
+
+  const handleCancel = async () => {
+    const reason = window.prompt("Cancel reason (required):", "");
+    if (!reason || !reason.trim()) return;
+    const note = window.prompt("Cancel note (required):", "");
+    if (!note || !note.trim()) return;
+    await updateStatus({ status: "Cancelled", reason: reason.trim(), note: note.trim() });
+  };
+
+  const handleForceClose = async () => {
+    if (!id) return;
+    const confirmed = window.confirm("Force close this appointment as Completed?");
+    if (!confirmed) return;
+    const reason = window.prompt("Force close reason (required):", "");
+    if (!reason || !reason.trim()) return;
+    const note = window.prompt("Force close note (required):", "");
+    if (!note || !note.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/appointments/${id}/complete`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ reason: reason.trim(), note: note.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || `Status ${res.status}`);
+      await load();
+    } catch (e: any) {
+      setError(e.message || "Failed to force close appointment");
+    }
+  };
+
+  const handleNoShowOverride = async () => {
+    if (!id) return;
+    const target = window.prompt("Override no-show to status (Confirmed/Cancelled):", "Confirmed");
+    if (!target || !target.trim()) return;
+    const reason = window.prompt("Override reason (required):", "");
+    if (!reason || !reason.trim()) return;
+    const note = window.prompt("Override note (required):", "");
+    if (!note || !note.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/appointments/${id}/no-show-override`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ status: target.trim(), reason: reason.trim(), note: note.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || `Status ${res.status}`);
+      await load();
+    } catch (e: any) {
+      setError(e.message || "Failed to override no-show");
     }
   };
 
@@ -167,15 +215,7 @@ export const AdminAppointmentDetails: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             <button
               className="btn btn-secondary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => updateStatus("Completed")}
-              disabled={!canComplete}
-              title={canComplete ? "Mark appointment as completed" : "Completed/cancelled/no-show appointments are read-only"}
-            >
-              Complete
-            </button>
-            <button
-              className="btn btn-secondary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => updateStatus("Cancelled")}
+              onClick={handleCancel}
               disabled={!canCancel}
               title={canCancel ? "Cancel appointment" : "Completed/cancelled/no-show appointments are read-only"}
             >
@@ -188,6 +228,27 @@ export const AdminAppointmentDetails: React.FC = () => {
             >
               No-show (Auto)
             </button>
+            <details className="relative">
+              <summary className="btn btn-secondary text-xs list-none cursor-pointer">More actions</summary>
+              <div className="absolute right-0 z-10 mt-2 w-44 rounded-xl border border-line bg-surface p-2 shadow-card">
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                  disabled={!canForceClose}
+                  onClick={handleForceClose}
+                >
+                  Force close
+                </button>
+                <button
+                  type="button"
+                  className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+                  disabled={!canNoShowOverride}
+                  onClick={handleNoShowOverride}
+                >
+                  Override no-show
+                </button>
+              </div>
+            </details>
           </div>
         </div>
       )}

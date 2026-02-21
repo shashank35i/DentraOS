@@ -872,6 +872,57 @@ async function writeInventoryConsumedAudit({ appointmentId, userId, meta }) {
   } catch (_) { }
 }
 
+async function writeAppointmentAuditAction({
+  appointmentId,
+  actorUserId = null,
+  action,
+  reason = null,
+  note = null,
+  meta = null,
+}) {
+  const ok = await tableExists("appointment_audit_logs");
+  if (!ok) return;
+  const cols = await getTableColumns("appointment_audit_logs");
+  const insertCols = [];
+  const insertVals = [];
+
+  if (cols.has("appointment_id")) {
+    insertCols.push("appointment_id");
+    insertVals.push(appointmentId);
+  }
+  if (cols.has("actor_user_id")) {
+    insertCols.push("actor_user_id");
+    insertVals.push(actorUserId || null);
+  }
+  if (cols.has("action")) {
+    insertCols.push("action");
+    insertVals.push(String(action || "UPDATED").slice(0, 64));
+  }
+  if (cols.has("reason") && reason !== null && reason !== undefined) {
+    insertCols.push("reason");
+    insertVals.push(String(reason).slice(0, 255));
+  }
+  if (cols.has("note")) {
+    insertCols.push("note");
+    insertVals.push(note ? String(note).slice(0, 1000) : null);
+  }
+  if (cols.has("meta_json")) {
+    insertCols.push("meta_json");
+    insertVals.push(meta ? JSON.stringify(meta) : null);
+  }
+  if (!insertCols.length) return;
+
+  const placeholders = insertCols.map(() => "?").join(",");
+  try {
+    await pool.query(
+      `INSERT INTO appointment_audit_logs (${insertCols.join(",")}) VALUES (${placeholders})`,
+      insertVals
+    );
+  } catch (err) {
+    console.error("writeAppointmentAuditAction error:", err?.message || err);
+  }
+}
+
 async function insertInventoryUsageLogFromDeduction({
   appointmentId,
   visitId,
@@ -4412,6 +4463,8 @@ app.patch(
     try {
       const dbId = Number(req.params.dbId);
       const status = String(req.body?.status || "").trim();
+      const reason = String(req.body?.reason || "").trim();
+      const note = String(req.body?.note || "").trim();
       if (!Number.isFinite(dbId) || dbId <= 0) return res.status(400).json({ message: "Invalid appointment id" });
       if (!status) return res.status(400).json({ message: "Status is required" });
       const [existingRows] = await pool.query(`SELECT status FROM appointments WHERE id = ? LIMIT 1`, [dbId]);
@@ -4426,7 +4479,24 @@ app.patch(
           status: existingRows[0].status,
         });
       }
+      if (nextStatus !== "cancelled") {
+        return res.status(403).json({ message: "Admin can only cancel from this endpoint" });
+      }
+      if (!reason || !note) {
+        return res.status(400).json({ message: "Cancel reason and note are required" });
+      }
       await pool.query(`UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?`, [status, dbId]);
+      await writeAppointmentAuditAction({
+        appointmentId: dbId,
+        actorUserId: req.user?.id || null,
+        action: "CANCELLED_BY_ADMIN",
+        reason,
+        note,
+        meta: {
+          fromStatus: existingRows[0].status,
+          toStatus: status,
+        },
+      });
       return res.json({ ok: true, id: dbId, status });
     } catch (err) {
       console.error("ADMIN APPOINTMENT STATUS UPDATE ERROR:", err);
@@ -4730,8 +4800,17 @@ app.patch(
   async (req, res) => {
     try {
       const dbId = Number(req.params.dbId);
+      const reason = String(req.body?.reason || "").trim();
+      const note = String(req.body?.note || "").trim();
+      if (!reason || !note) {
+        return res.status(400).json({ message: "Force close reason and note are required" });
+      }
       const [rows] = await pool.query(`SELECT * FROM appointments WHERE id = ? LIMIT 1`, [dbId]);
       if (rows.length === 0) return res.status(404).json({ message: "Appointment not found" });
+      const currentStatus = String(rows[0].status || "").trim().toLowerCase();
+      if (currentStatus === "completed") {
+        return res.status(409).json({ message: "Appointment is already completed", status: rows[0].status });
+      }
 
       await pool.query(
         `UPDATE appointments
@@ -4740,6 +4819,17 @@ app.patch(
          WHERE id = ?`,
         [dbId]
       );
+      await writeAppointmentAuditAction({
+        appointmentId: dbId,
+        actorUserId: req.user?.id || null,
+        action: "FORCE_CLOSED_BY_ADMIN",
+        reason,
+        note,
+        meta: {
+          fromStatus: rows[0].status,
+          toStatus: "Completed",
+        },
+      });
 
       await enqueueEventCompat({
         eventType: "AppointmentCompleted",
@@ -4768,6 +4858,52 @@ app.patch(
     } catch (err) {
       console.error("COMPLETE APPOINTMENT ERROR:", err);
       return res.json({ ok: false, error: true });
+    }
+  }
+);
+
+app.patch(
+  `${ADMIN_BASE}/appointments/:dbId/no-show-override`,
+  authMiddleware,
+  requireRole("Admin"),
+  async (req, res) => {
+    try {
+      const dbId = Number(req.params.dbId);
+      const status = String(req.body?.status || "Confirmed").trim();
+      const reason = String(req.body?.reason || "").trim();
+      const note = String(req.body?.note || "").trim();
+      if (!Number.isFinite(dbId) || dbId <= 0) return res.status(400).json({ message: "Invalid appointment id" });
+      if (!reason || !note) return res.status(400).json({ message: "Override reason and note are required" });
+
+      const [rows] = await pool.query(`SELECT status FROM appointments WHERE id = ? LIMIT 1`, [dbId]);
+      if (!rows.length) return res.status(404).json({ message: "Appointment not found" });
+      const current = String(rows[0].status || "").trim().toLowerCase();
+      if (current !== "no-show" && current !== "no show") {
+        return res.status(409).json({ message: "No-show override is only allowed for no-show appointments" });
+      }
+
+      const allowed = new Set(["confirmed", "cancelled"]);
+      if (!allowed.has(status.toLowerCase())) {
+        return res.status(400).json({ message: "Override status must be Confirmed or Cancelled" });
+      }
+
+      await pool.query(`UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?`, [status, dbId]);
+      await writeAppointmentAuditAction({
+        appointmentId: dbId,
+        actorUserId: req.user?.id || null,
+        action: "NO_SHOW_OVERRIDE_BY_ADMIN",
+        reason,
+        note,
+        meta: {
+          fromStatus: rows[0].status,
+          toStatus: status,
+        },
+      });
+
+      return res.json({ ok: true, id: dbId, status });
+    } catch (err) {
+      console.error("ADMIN NO-SHOW OVERRIDE ERROR:", err);
+      return res.status(500).json({ message: "Failed to override no-show" });
     }
   }
 );
@@ -7172,6 +7308,12 @@ app.patch(
           status: existingRows[0].status,
         });
       }
+      if (nextStatus === "completed") {
+        return res.status(403).json({ message: "Use doctor complete endpoint for completion workflow" });
+      }
+      if (nextStatus === "cancelled" || nextStatus === "no-show" || nextStatus === "no show") {
+        return res.status(403).json({ message: "Only admin can cancel or override no-show statuses" });
+      }
       await pool.query(`UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? AND doctor_id = ?`, [status, dbId, doctorId]);
       return res.json({ ok: true, id: dbId, status });
     } catch (err) {
@@ -7200,6 +7342,10 @@ app.patch(
 
       if (rows.length === 0) {
         return res.status(404).json({ message: "Appointment not found" });
+      }
+      const currentStatus = String(rows[0].status || "").trim().toLowerCase();
+      if (currentStatus === "completed" || currentStatus === "cancelled" || currentStatus === "no-show" || currentStatus === "no show") {
+        return res.status(409).json({ message: "Appointment is already in terminal state", status: rows[0].status });
       }
 
       await pool.query(
